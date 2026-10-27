@@ -155,6 +155,8 @@ markers = [
 [tool.coverage.run]
 source = ["app"]
 branch = true
+# SQLAlchemy's async engine switches through greenlets during database calls.
+concurrency = ["greenlet", "thread"]
 
 [tool.coverage.report]
 exclude_lines = [

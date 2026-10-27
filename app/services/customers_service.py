@@ -28,6 +28,8 @@ async def create_customer(
     await db.commit()
     await db.refresh(customer)
 
+    return customer
+
 async def get_customers(
         db: AsyncSession,
 ) -> list[Customer]:

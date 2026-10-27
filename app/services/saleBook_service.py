@@ -58,7 +58,7 @@ async def update_sale_book(
     for field, value in update_data.items():
         setattr(sale_book, field, value)
 
-    db.commit()
-    db.refresh(book_data)
+    await db.commit()
+    await db.refresh(sale_book)
 
-    return book_data
+    return sale_book

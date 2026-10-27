@@ -5,6 +5,7 @@ from app.core.security import hash_password
 from app.models.location import Location
 from app.models.purchase import Purchase
 from app.models.sales import Sale
+from app.models.suppliers import Supplier
 from app.models.user import User
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
@@ -30,7 +31,13 @@ async def test_book_lifecycle(
         location = Location(name="Shop", code="SHOP", address="Main street")
         db.add_all([user, location])
         await db.flush()
-        transaction = model(invoice_number="INV-1", created_by=user.id, location_id=location.id)
+        supplier = Supplier(name="Book supplier", phone="BOOK")
+        db.add(supplier)
+        await db.flush()
+        extra = {"supplier_id": supplier.id} if model is Purchase else {}
+        transaction = model(
+            **extra, invoice_number="INV-1", created_by=user.id, location_id=location.id
+        )
         db.add(transaction)
         await db.commit()
         await db.refresh(transaction)

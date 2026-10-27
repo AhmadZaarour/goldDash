@@ -4,6 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.dependencies import get_current_user
+from app.models.inventoryServicing import InventoryService
 from app.schemas.inventoryServicing import (
     ServiceCreate,
     ServiceResponse,
@@ -11,15 +13,17 @@ from app.schemas.inventoryServicing import (
 )
 from app.services.inventoryServicing_service import (
     create_service,
-    update_service,
     get_service,
     get_services,
+    update_service,
 )
 
 router = APIRouter(
     prefix="/servicing",
     tags=["Servicing"],
+    dependencies=[Depends(get_current_user)],
 )
+
 
 @router.post(
     "",
@@ -36,11 +40,9 @@ async def create_service_endpoint(
             service_data,
         )
     except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=str(exc)
-        )from exc
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return service
+
 
 @router.get(
     "",
@@ -50,6 +52,7 @@ async def get_services_endpoint(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> list[ServiceResponse]:
     return await get_services(db)
+
 
 @router.get(
     "/{barcode}",
@@ -67,6 +70,7 @@ async def get_service_endpoint(
         )
     return result
 
+
 @router.patch(
     "/{service_id}",
     response_model=ServiceResponse,
@@ -76,7 +80,7 @@ async def update_service_endpoint(
     service_data: ServiceUpdate,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> ServiceResponse:
-    service = await get_service(db, service_id)
+    service = await db.get(InventoryService, service_id)
     if service is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -92,5 +96,5 @@ async def update_service_endpoint(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(exc),
-        )from exc
+        ) from exc
     return new_service

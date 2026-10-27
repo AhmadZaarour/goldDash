@@ -1,10 +1,11 @@
 from datetime import datetime
+from enum import StrEnum
 
 from sqlalchemy import DateTime, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
-from enum import StrEnum
+
 
 class UserRole(StrEnum):
     ADMIN = "admin"

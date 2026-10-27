@@ -1,18 +1,22 @@
 from datetime import datetime
+from decimal import Decimal
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class PurchaseLineCreate(BaseModel):
     supplier_id: int
     product_id: int
-    weight: float = Field(gt=0)
-    gold_price_per_gram: float = Field(ge=0)
-    gold_charge_in_grams: float = Field(ge=0)
-    making_charge: float = Field(ge=0)
+    weight: Decimal = Field(gt=0)
+    gold_price_per_gram: Decimal = Field(ge=0)
+    gold_charge_in_grams: Decimal = Field(ge=0)
+    making_charge: Decimal = Field(ge=0)
     barcode: str = Field(min_length=1, max_length=50)
 
+
 class PurchaseCreate(BaseModel):
+    supplier_id: int
     invoice_number: str | None = Field(default=None, max_length=50)
     notes: str | None = Field(default=None, max_length=200)
     created_by: int
@@ -20,13 +24,23 @@ class PurchaseCreate(BaseModel):
     location_id: int
     items: list[PurchaseLineCreate] = Field(min_length=1)
 
+    @model_validator(mode="after")
+    def one_supplier_per_invoice(self):
+        if any(line.supplier_id != self.supplier_id for line in self.items):
+            raise ValueError("A purchase invoice must have exactly one supplier")
+        return self
+
+
 class PurchaseStockItemCreate(BaseModel):
+    making_charge: Decimal = Field(default=0, ge=0)
     product_id: int
-    stock_for: str = Field(min_length=1, max_length=50)
-    weight: float = Field(gt=0)
-    cost_per_gram: float = Field(ge=0)
+    stock_for: Literal["factory", "showroom"]
+    weight: Decimal = Field(gt=0)
+    cost_per_gram: Decimal = Field(ge=0)
+
 
 class PurchaseStockCreate(BaseModel):
+    supplier_id: int
     invoice_number: str | None = Field(default=None, max_length=50)
     notes: str | None = Field(default=None, max_length=200)
     created_by: int
@@ -34,26 +48,30 @@ class PurchaseStockCreate(BaseModel):
     location_id: int
     item: PurchaseStockItemCreate
 
+
 class PurchaseUpdate(BaseModel):
     invoice_number: str | None = Field(default=None, max_length=50)
     notes: str | None = Field(default=None, max_length=200)
     location_id: int | None = None
 
+
 class PurchaseItemUpdate(BaseModel):
     supplier_id: int | None = None
     purchase_id: int | None = None
     product_id: int | None = None
-    weight: float | None = None
-    gold_price_per_gram: float | None = None
-    gold_charge_in_grams: float | None = None
-    making_charge: float | None = None
+    weight: Decimal | None = None
+    gold_price_per_gram: Decimal | None = None
+    gold_charge_in_grams: Decimal | None = None
+    making_charge: Decimal | None = None
+
 
 class PurchaseStockUpdate(BaseModel):
     purchase_id: int | None = None
     product_id: int | None = None
     stock_for: str | None = Field(default=None, min_length=1, max_length=50)
-    weight: float | None = None
-    cost_per_gram: float | None = None
+    weight: Decimal | None = None
+    cost_per_gram: Decimal | None = None
+
 
 class PurchaseStockResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -65,6 +83,7 @@ class PurchaseStockResponse(BaseModel):
     weight: float
     cost_per_gram: float
 
+
 class PurchaseResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -74,6 +93,7 @@ class PurchaseResponse(BaseModel):
     created_by: int
     created_at: datetime
     location_id: int
+
 
 class PurchaseItemResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)

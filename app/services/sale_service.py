@@ -5,12 +5,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.inventoryBalance import InventoryBalance
 from app.models.inventoryItem import InventoryItem
-from app.models.sales import Sale
 from app.models.saleItem import SaleItem
+from app.models.sales import Sale
 from app.models.saleStock import SaleStock
 from app.schemas.inventory import (
-    InventoryItemUpdate,
-    InventoryMovementUpdate,
+    InventoryMovementCreate,
 )
 from app.schemas.inventoryBalance import (
     InventoryBalanceUpdate,
@@ -20,61 +19,63 @@ from app.schemas.sales import (
     SaleStockCreate,
 )
 from app.services.inventory_service import (
-    update_item,
-    get_item,
-    update_movement,
-    get_movement,
+    create_movement,
 )
 from app.services.inventoryBalance_service import (
     inventory_balance_update,
 )
+from app.services.supplier_ledger_service import post_entry
+
 
 async def create_item_sale(
-        db: AsyncSession,
-        sale_data: SaleCreate,
+    db: AsyncSession,
+    sale_data: SaleCreate,
 ) -> Sale:
-    sale = Sale(
-        **sale_data.model_dump(exclude={"items"}, exclude_none=True)
-    )
+    sale = Sale(**sale_data.model_dump(exclude={"items"}, exclude_none=True))
     db.add(sale)
 
     try:
         await db.flush()
 
+        # Lock in a consistent order so overlapping multi-item sales cannot deadlock.
+        ids = [line.inventory_item_id for line in sale_data.items]
+        if len(ids) != len(set(ids)):
+            raise ValueError("An item may appear only once in a sale")
+        locked = await db.scalars(
+            select(InventoryItem)
+            .where(InventoryItem.id.in_(ids))
+            .order_by(InventoryItem.id)
+            .with_for_update()
+        )
+        items = {item.id: item for item in locked}
         for line in sale_data.items:
-            sale_item = SaleItem(
-                sale_id=sale.id,
-                inventory_item_id=line.inventory_item_id,
-                gold_price_per_gram=line.gold_price_per_gram,
-                discount=line.discount,
-                sell_price=line.sell_price,
+            item = items.get(line.inventory_item_id)
+            if item is None:
+                raise ValueError(f"Inventory item {line.inventory_item_id} does not exist")
+            if item.location_id != sale.location_id:
+                raise ValueError("Item is not at the sale location")
+            if item.status != "in_stock":
+                raise ValueError(f"Inventory item {item.id} is not available for sale")
+            db.add(
+                SaleItem(
+                    sale_id=sale.id,
+                    inventory_item_id=item.id,
+                    gold_price_per_gram=line.gold_price_per_gram,
+                    discount=line.discount,
+                    sell_price=line.sell_price,
+                )
             )
-            db.add(sale_item)
-            await db.flush()
-
-            item = await get_item(db, sale_item.inventory_item_id)
-            item_data = InventoryItemUpdate(
-                status="sold",
-            )
-
-            await update_item(
+            item.status = "sold"
+            await create_movement(
                 db,
-                item,
-                item_data,
-            )
-            movement = await get_movement(db, sale_item.inventory_item_id)
-            await update_movement(
-                db,
-                movement,
-                InventoryMovementUpdate(
-                    movement_type="sale"
+                InventoryMovementCreate(
+                    inventory_item_id=item.id,
+                    movement_type="sale",
+                    from_location_id=item.location_id,
+                    created_by=sale.created_by,
+                    sale_id=sale.id,
                 ),
             )
-            inventory_item = await db.scalar(
-                select(InventoryItem).where(InventoryItem.id == line.inventory_item_id)
-            )
-            if inventory_item is None:
-                raise ValueError(f"Product {line.inventory_item_id} does not exist")
         await db.flush()
         await db.commit()
     except Exception:
@@ -83,13 +84,12 @@ async def create_item_sale(
     await db.refresh(sale)
     return sale
 
+
 async def create_stock_sale(
-        db: AsyncSession,
-        sale_data: SaleStockCreate,
+    db: AsyncSession,
+    sale_data: SaleStockCreate,
 ) -> Sale:
-    sale = Sale(
-        **sale_data.model_dump(exclude={"item"}, exclude_none=True)
-    )
+    sale = Sale(**sale_data.model_dump(exclude={"item"}, exclude_none=True))
     db.add(sale)
     try:
         await db.flush()
@@ -106,20 +106,33 @@ async def create_stock_sale(
         await db.flush()
 
         balance = await db.scalar(
-            select(InventoryBalance).where(
-                InventoryBalance.purity_id==sale_data.item.gold_purity_id,
-                InventoryBalance.location_id==sale.location_id,
-                InventoryBalance.placement=="factory",
+            select(InventoryBalance)
+            .where(
+                InventoryBalance.purity_id == sale_data.item.gold_purity_id,
+                InventoryBalance.location_id == sale.location_id,
+                InventoryBalance.placement == "factory",
             )
+            .with_for_update()
         )
         if balance is None:
             raise ValueError("No factory inventory balance found for this location and purity")
 
         weight = Decimal(str(sale_data.item.weight))
-        updated_balance = InventoryBalanceUpdate(
-            total_weight=balance.total_weight - weight
-        )
+        if balance.total_weight < weight:
+            raise ValueError("Insufficient factory inventory weight")
+        updated_balance = InventoryBalanceUpdate(total_weight=balance.total_weight - weight)
         await inventory_balance_update(db, balance, updated_balance)
+        post_entry(
+            db,
+            supplier_id=sale_data.item.supplier_id,
+            purity_id=sale_data.item.gold_purity_id,
+            gold_grams=-Decimal(str(sale_data.item.gold_charge_in_grams)),
+            making_usd=-Decimal(str(sale_data.item.making_charge)),
+            source_key=f"sale:{sale.id}",
+            kind="sale",
+            created_by=sale.created_by,
+            sale_id=sale.id,
+        )
         await db.commit()
     except Exception:
         await db.rollback()
@@ -127,9 +140,10 @@ async def create_stock_sale(
     await db.refresh(sale)
     return sale
 
+
 async def get_sale(
-        db: AsyncSession,
-        sale_id: int,
+    db: AsyncSession,
+    sale_id: int,
 ) -> Sale | None:
     return await db.scalar(
         select(Sale).where(
@@ -137,17 +151,17 @@ async def get_sale(
         )
     )
 
+
 async def get_sales(
-        db: AsyncSession,
+    db: AsyncSession,
 ) -> list[Sale]:
-    result = await db.scalars(
-        select(Sale).order_by(Sale.id)
-    )
+    result = await db.scalars(select(Sale).order_by(Sale.id))
     return list(result.all())
 
+
 async def get_sale_items(
-        db: AsyncSession,
-        sale_id: int,
+    db: AsyncSession,
+    sale_id: int,
 ) -> list[SaleItem]:
     result = await db.scalars(
         select(SaleItem).where(
@@ -156,9 +170,10 @@ async def get_sale_items(
     )
     return list(result.all())
 
+
 async def get_stock_sale(
-        db: AsyncSession,
-        sale_id: int,
+    db: AsyncSession,
+    sale_id: int,
 ) -> SaleStock:
     return await db.scalar(
         select(SaleStock).where(

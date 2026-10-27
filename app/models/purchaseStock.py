@@ -1,37 +1,40 @@
-from sqlalchemy import ForeignKey, String, Enum, Float
+from decimal import Decimal
+from enum import StrEnum
+
+from sqlalchemy import ForeignKey, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
+
 from app.core.database import Base
 
-class StockFor(str, Enum):
+
+class StockFor(StrEnum):
     FACTORY = "factory"
     SHOWROOM = "showroom"
 
-class PurchaseStock(Base):
 
+class PurchaseStock(Base):
     __tablename__ = "purchaseStocks"
 
-    id : Mapped[int] = mapped_column(
-        primary_key= True,
+    id: Mapped[int] = mapped_column(
+        primary_key=True,
     )
 
-    purchase_id : Mapped[int] = mapped_column(
+    purchase_id: Mapped[int] = mapped_column(
         ForeignKey("purchases.id"),
-        nullable = False,
+        nullable=False,
     )
 
-    product_id : Mapped[int] = mapped_column(
-        ForeignKey ("products.id")
-    )
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"))
 
-    stock_for : Mapped[StockFor] = mapped_column(
+    stock_for: Mapped[StockFor] = mapped_column(
         String,
-        nullable = False,
+        nullable=False,
     )
 
-    weight : Mapped[float] = mapped_column(
-        Float,
+    weight: Mapped[Decimal] = mapped_column(
+        Numeric(14, 3),
     )
 
-    cost_per_gram : Mapped[float] = mapped_column(
-        Float,
+    cost_per_gram: Mapped[Decimal] = mapped_column(
+        Numeric(14, 4),
     )

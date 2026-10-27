@@ -1,28 +1,29 @@
-from sqlalchemy import Integer, String, Float
+from sqlalchemy import Float, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
+
 from app.core.database import Base
 
-class GoldPurity(Base):
 
+class GoldPurity(Base):
     __tablename__ = "goldPurities"
 
-    id : Mapped[int] = mapped_column(
-        primary_key = True,
+    id: Mapped[int] = mapped_column(
+        primary_key=True,
     )
 
-    name : Mapped[str] = mapped_column(
+    name: Mapped[str] = mapped_column(
         String(50),
-        unique = True,
-        index = True,
-        nullable = False,
+        unique=True,
+        index=True,
+        nullable=False,
     )
 
-    karat : Mapped[int] = mapped_column(
+    karat: Mapped[int] = mapped_column(
         Integer,
-        nullable = False,
+        nullable=False,
     )
 
-    purity : Mapped[float] = mapped_column(
+    purity: Mapped[float] = mapped_column(
         Float,
-        nullable = False,
-    )   
+        nullable=False,
+    )

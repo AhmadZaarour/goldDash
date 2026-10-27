@@ -3,21 +3,21 @@ from uuid import uuid4
 import pytest
 from httpx import AsyncClient
 
-from app.schemas.auth import TokenResponse
-
 from tests.api.test_auth import (
     login_user,
 )
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
-def supplier_payload() -> dict[str,str]:
+
+def supplier_payload() -> dict[str, str]:
     suffix = uuid4().hex
     return {
         "name": f"name-{suffix}",
-        "phone": "885488454",
+        "phone": str(int(suffix[:12], 16)),
         "is_active": True,
     }
+
 
 async def test_create_supplier(client: AsyncClient):
 

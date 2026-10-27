@@ -2,10 +2,11 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
 
 class PurchaseLineCreate(BaseModel):
+    image_url: HttpUrl | None = Field(default=None, max_length=2048)
     supplier_id: int
     product_id: int
     weight: Decimal = Field(gt=0)

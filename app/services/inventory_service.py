@@ -30,6 +30,7 @@ async def create_item(
         purchase_item_id=item_data.purchase_item_id,
         location_id=item_data.location_id,
         barcode=item_data.barcode,
+        image_url=str(item_data.image_url) if item_data.image_url is not None else None,
         status=item_data.status,
     )
 
@@ -73,6 +74,8 @@ async def update_item(
             raise ValueError("Item barcode already exists")
 
     for field, value in update_data.items():
+        if field == "image_url" and value is not None:
+            value = str(value)
         setattr(item, field, value)
 
     await db.flush()

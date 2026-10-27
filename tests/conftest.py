@@ -1,4 +1,8 @@
+import asyncio
+import os
+import subprocess
 from collections.abc import AsyncGenerator
+from pathlib import Path
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -15,6 +19,8 @@ from app.core.config import settings
 from app.core.database import Base, get_db
 from app.main import app
 from app.services import session_service
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 TEST_DATABASE_URL = settings.test_database_url
 TEST_REDIS_URL = settings.test_redis_url
@@ -44,15 +50,22 @@ async def test_engine() -> AsyncGenerator[AsyncEngine, None]:
         pool_pre_ping=True,
     )
 
+    # Exercise the same migrations used to deploy the application.
+    migration_env = dict(os.environ, DATABASE_URL=TEST_DATABASE_URL)
+    await asyncio.to_thread(
+        subprocess.run,
+        [str(PROJECT_ROOT / ".venv/bin/alembic"), "upgrade", "head"],
+        cwd=PROJECT_ROOT,
+        env=migration_env,
+        check=True,
+        capture_output=True,
+    )
     async with engine.begin() as connection:
         await connection.execute(text("SELECT 1"))
-        await connection.run_sync(Base.metadata.create_all)
 
     try:
         yield engine
     finally:
-        async with engine.begin() as connection:
-            await connection.run_sync(Base.metadata.drop_all)
         await engine.dispose()
 
 

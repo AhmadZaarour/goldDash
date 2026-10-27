@@ -1,27 +1,29 @@
 from datetime import datetime
-from sqlalchemy import DateTime, ForeignKey, String, func, Enum
+
+from sqlalchemy import DateTime, ForeignKey, String, func
 from sqlalchemy.orm import Mapped, mapped_column
+
 from app.core.database import Base
 
-class Sale(Base):
 
+class Sale(Base):
     __tablename__ = "sales"
 
-    id : Mapped[int] = mapped_column(
-        primary_key= True,
+    id: Mapped[int] = mapped_column(
+        primary_key=True,
     )
 
-    invoice_number : Mapped[str] = mapped_column(
+    invoice_number: Mapped[str] = mapped_column(
         String(50),
-        nullable = True,
+        nullable=True,
     )
 
-    notes : Mapped[str] = mapped_column(
+    notes: Mapped[str] = mapped_column(
         String(200),
-        nullable = True,
+        nullable=True,
     )
 
-    created_by : Mapped[int] = mapped_column(
+    created_by: Mapped[int] = mapped_column(
         ForeignKey("users.id"),
     )
 
@@ -31,7 +33,6 @@ class Sale(Base):
         nullable=False,
     )
 
-    location_id : Mapped[int] = mapped_column(
+    location_id: Mapped[int] = mapped_column(
         ForeignKey("locations.id"),
     )
-

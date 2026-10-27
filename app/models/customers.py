@@ -5,6 +5,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 
+
 class Customer(Base):
     __tablename__ = "customers"
 
@@ -17,7 +18,7 @@ class Customer(Base):
         nullable=False,
     )
 
-    phone : Mapped[str] = mapped_column(
+    phone: Mapped[str] = mapped_column(
         String(50),
         nullable=True,
     )

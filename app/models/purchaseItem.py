@@ -1,43 +1,42 @@
-from sqlalchemy import ForeignKey, Float
+from decimal import Decimal
+
+from sqlalchemy import ForeignKey, Numeric
 from sqlalchemy.orm import Mapped, mapped_column
+
 from app.core.database import Base
 
 
 class PurchaseItem(Base):
-
     __tablename__ = "purchaseItems"
 
-    id : Mapped[int] = mapped_column(
-        primary_key= True,
+    id: Mapped[int] = mapped_column(
+        primary_key=True,
     )
 
-    supplier_id : Mapped[int] = mapped_column(
+    supplier_id: Mapped[int] = mapped_column(
         ForeignKey("suppliers.id"),
-        nullable = False,
+        nullable=False,
     )
 
-    purchase_id : Mapped[int] = mapped_column(
+    purchase_id: Mapped[int] = mapped_column(
         ForeignKey("purchases.id"),
-        nullable = False,
+        nullable=False,
     )
 
-    product_id : Mapped[int] = mapped_column(
-        ForeignKey ("products.id")
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"))
+
+    weight: Mapped[Decimal] = mapped_column(
+        Numeric(14, 3),
     )
 
-    weight : Mapped[float] = mapped_column(
-        Float,
+    gold_price_per_gram: Mapped[Decimal] = mapped_column(
+        Numeric(14, 4),
     )
 
-    gold_price_per_gram : Mapped[float] = mapped_column(
-        Float,
+    gold_charge_in_grams: Mapped[Decimal] = mapped_column(
+        Numeric(14, 3),
     )
 
-    gold_charge_in_grams : Mapped[float] = mapped_column(
-        Float,
+    making_charge: Mapped[Decimal] = mapped_column(
+        Numeric(14, 2),
     )
-
-    making_charge : Mapped[float] = mapped_column(
-        Float,
-    )
-

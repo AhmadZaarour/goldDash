@@ -4,7 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.dependencies import CurrentUser
+from app.models.inventoryItem import InventoryItem
 from app.schemas.inventory import (
+    InventoryItemImageUpdate,
     InventoryItemResponse,
     InventoryMovementResponse,
     InventoryStockResponse,
@@ -113,6 +116,22 @@ async def get_all_stock_endpoint(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> list[InventoryStockResponse]:
     return await get_all_stock(db)
+
+
+@router.patch("/items/{item_id}/image", response_model=InventoryItemResponse)
+async def update_item_image(
+    item_id: int,
+    data: InventoryItemImageUpdate,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+) -> InventoryItemResponse:
+    item = await db.get(InventoryItem, item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Item not found")
+    item.image_url = str(data.image_url) if data.image_url is not None else None
+    await db.commit()
+    await db.refresh(item)
+    return item
 
 
 # Compatibility aliases for the original item-only routes.

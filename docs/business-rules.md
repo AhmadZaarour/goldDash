@@ -65,3 +65,12 @@ executed by these endpoints. Supplier return documents and bulk-sale reversals
 need explicit business workflows; do not emulate them with negative quantities.
 Legacy invoice-book removal, case-insensitive identity uniqueness, broader role
 policies, and production data migration remain separate improvements.
+
+## Item images
+
+Individual purchase lines accept an optional HTTP(S) `image_url` (maximum 2,048
+characters). The URL is stored on the barcoded inventory item and returned by
+item reads. Existing items default to null. Authenticated clients can set or clear
+it with `PATCH /api/v1/inventory/items/{id}/image`, using
+`{"image_url": "https://example.com/item.jpg"}` or `{"image_url": null}`.
+This stores a URL only; it does not upload or fetch images. Bulk stock has no image field.

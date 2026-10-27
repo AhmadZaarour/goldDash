@@ -22,6 +22,8 @@ class InventoryItem(Base):
         nullable=False,
     )
 
+    image_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+
     status: Mapped[str] = mapped_column(
         String(50),
     )

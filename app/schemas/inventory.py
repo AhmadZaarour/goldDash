@@ -1,9 +1,10 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 
 
 class InventoryItemCreate(BaseModel):
+    image_url: HttpUrl | None = Field(default=None, max_length=2048)
     location_id: int
     purchase_item_id: int
     barcode: str
@@ -26,6 +27,7 @@ class InventoryMovementCreate(BaseModel):
 
 
 class InventoryItemUpdate(BaseModel):
+    image_url: HttpUrl | None = Field(default=None, max_length=2048)
     barcode: str | None = Field(default=None, min_length=1, max_length=50)
     status: str | None = Field(default=None, min_length=1, max_length=50)
 
@@ -38,7 +40,12 @@ class InventoryMovementUpdate(BaseModel):
     movement_type: str | None = Field(default=None, min_length=1, max_length=50)
 
 
+class InventoryItemImageUpdate(BaseModel):
+    image_url: HttpUrl | None = Field(max_length=2048)
+
+
 class InventoryItemResponse(BaseModel):
+    image_url: str | None = None
     model_config = ConfigDict(from_attributes=True)
 
     id: int

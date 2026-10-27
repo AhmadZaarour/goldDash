@@ -1,5 +1,3 @@
-from decimal import Decimal
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,7 +18,6 @@ from app.schemas.inventoryBalance import (
 from app.schemas.purchases import (
     PurchaseCreate,
     PurchaseStockCreate,
-    ServicingCreate,
 )
 from app.services.inventory_service import (
     create_item,
@@ -32,59 +29,6 @@ from app.services.inventoryBalance_service import (
     inventory_balance_create,
     inventory_balance_update,
 )
-
-async def create_item_service(
-        db: AsyncSession,
-        service_data: ServicingCreate,
-) -> Purchase:
-    service = Purchase(
-        **service_data.model_dump(exclude={"items"}, exclude_none=True)
-    )
-    db.add(service)
-    try:
-        await db.flush()
-        service_item=PurchaseItem(
-            supplier_id=service_data.items.supplier_id,
-            purchase_id=service.id,
-            product_id=service_data.items.product_id,
-            weight=service_data.items.weight,
-            gold_price_per_gram=service_data.items.gold_price_per_gram,
-            gold_charge_in_grams=service_data.items.gold_charge_in_grams,
-            making_charge=service_data.items.making_charge,
-        )
-        db.add(service_item)
-        await db.flush()
-
-        item = await create_item(
-            db,
-            InventoryItemCreate(
-                purchase_item_id=service_item.id,
-                barcode=service_data.items.barcode,
-                status="in_servicing",
-            ),
-        )
-        await create_movement(
-            db,
-            InventoryMovementCreate(
-                inventory_item_id=item.id,
-                movement_type="servicing",
-            ),
-        )
-
-        product = await db.scalar(
-            select(Product).where(Product.id == service_data.items.product_id)
-        )
-        if product is None:
-            raise ValueError(f"Product {service_data.items.product_id} does not exist")
-
-        await db.flush()
-        await db.commit()
-    except Exception:
-        await db.rollback()
-        raise
-
-    await db.refresh(service)
-    return service
 
 async def create_item_purchase(
     db: AsyncSession,

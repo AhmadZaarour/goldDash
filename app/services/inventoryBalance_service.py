@@ -1,6 +1,5 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from decimal import Decimal
 from app.models.inventoryBalance import InventoryBalance
 from app.schemas.inventoryBalance import (
     InventoryBalanceCreate,

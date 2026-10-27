@@ -20,23 +20,6 @@ class PurchaseCreate(BaseModel):
     location_id: int
     items: list[PurchaseLineCreate] = Field(min_length=1)
 
-class ServicingLineCreate(BaseModel):
-    supplier_id: int
-    product_id: int
-    weight: float = Field(gt=0)
-    gold_price_per_gram: float = Field(ge=0)
-    gold_charge_in_grams: float = Field(ge=0)
-    making_charge: float = Field(ge=0)
-    barcode: str = Field(min_length=1, max_length=50)
-
-class ServicingCreate(BaseModel):
-    invoice_number: str | None = Field(default=None, max_length=50)
-    notes: str | None = Field(default=None, max_length=200)
-    created_by: int
-    created_at: datetime | None = Field(default_factory=datetime.utcnow)
-    location_id: int
-    items: ServicingLineCreate
-
 class PurchaseStockItemCreate(BaseModel):
     product_id: int
     stock_for: str = Field(min_length=1, max_length=50)
@@ -93,28 +76,6 @@ class PurchaseResponse(BaseModel):
     location_id: int
 
 class PurchaseItemResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    supplier_id: int
-    purchase_id: int
-    product_id: int
-    weight: float
-    gold_price_per_gram: float
-    gold_charge_in_grams: float
-    making_charge: float
-
-class ServiceResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    invoice_number: str | None
-    notes: str | None
-    created_by: int
-    created_at: datetime
-    location_id: int
-
-class ServiceItemResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int

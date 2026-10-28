@@ -20,7 +20,7 @@ async def test_cors_allows_only_configured_origins_and_exposes_pagination():
             headers={
                 "Origin": "http://localhost:5173",
                 "Access-Control-Request-Method": "GET",
-                "Access-Control-Request-Headers": "authorization",
+                "Access-Control-Request-Headers": "authorization,idempotency-key",
             },
         )
         assert allowed.status_code == 200

@@ -4,10 +4,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.suppliers import Supplier
 from app.schemas.suppliers import SupplierCreate, SupplierUpdate
 
-async def create_supplier(
-        db: AsyncSession,
-        supplier_data: SupplierCreate
-) -> Supplier:
+
+async def create_supplier(db: AsyncSession, supplier_data: SupplierCreate) -> Supplier:
 
     existing_supplier = await db.scalar(
         select(Supplier).where(
@@ -19,8 +17,9 @@ async def create_supplier(
         raise ValueError("Customer name already exist")
 
     supplier = Supplier(
-        name = supplier_data.name,
-        phone = supplier_data.phone,
+        name=supplier_data.name,
+        phone=supplier_data.phone,
+        is_active=supplier_data.is_active,
     )
 
     db.add(supplier)
@@ -29,31 +28,28 @@ async def create_supplier(
     await db.refresh(supplier)
     return supplier
 
+
 async def get_suppliers(
-        db: AsyncSession,
+    db: AsyncSession,
 ) -> list[Supplier]:
 
-    suppliers = await db.scalars(
-        select(Supplier).order_by(Supplier.id)
-    )
+    suppliers = await db.scalars(select(Supplier).order_by(Supplier.id))
 
     return list(suppliers.all())
 
+
 async def get_supplier(
-        db: AsyncSession,
-        supplier_id: int,
+    db: AsyncSession,
+    supplier_id: int,
 ) -> Supplier | None:
 
-    return await db.scalar(
-        select(Supplier).where(
-            Supplier.id == supplier_id
-        )
-    )
+    return await db.scalar(select(Supplier).where(Supplier.id == supplier_id))
+
 
 async def update_supplier(
-        db: AsyncSession,
-        supplier: Supplier,
-        supplier_data: SupplierUpdate,
+    db: AsyncSession,
+    supplier: Supplier,
+    supplier_data: SupplierUpdate,
 ) -> Supplier | None:
 
     update_data = supplier_data.model_dump(

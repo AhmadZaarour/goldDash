@@ -31,7 +31,7 @@ async def test_blank_database_upgrade_downgrade_and_replay():
         admin.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
         try:
 
-            async def migrate(*args):
+            async def migrate(*args, expected=0):
                 result = await asyncio.to_thread(
                     subprocess.run,
                     [str(project / ".venv/bin/alembic"), *args],
@@ -40,7 +40,8 @@ async def test_blank_database_upgrade_downgrade_and_replay():
                     capture_output=True,
                     text=True,
                 )
-                assert result.returncode == 0, result.stderr
+                assert result.returncode == expected, result.stderr
+                return result
 
             await migrate("upgrade", "head")
             with psycopg.connect(
@@ -143,6 +144,21 @@ async def test_blank_database_upgrade_downgrade_and_replay():
                     ),
                     (sale_line, location_id, user_id),
                 )
+            legacy_url = url.set(drivername="postgresql", database=name).render_as_string(
+                hide_password=False
+            )
+            with psycopg.connect(legacy_url) as conn:
+                conn.execute("UPDATE products SET inventory_type = 'legacy-unknown'")
+            failure = await migrate("upgrade", "head", expected=1)
+            assert "Map legacy products.inventory_type" in failure.stderr
+            with psycopg.connect(legacy_url) as conn:
+                legacy_type = conn.execute("SELECT inventory_type FROM products").fetchone()[0]
+                assert legacy_type == "legacy-unknown"
+                conn.execute("UPDATE products SET inventory_type = 'bulk'")
+            failure = await migrate("upgrade", "head", expected=1)
+            assert "incompatible item/bulk purchase history" in failure.stderr
+            with psycopg.connect(legacy_url) as conn:
+                conn.execute("UPDATE products SET inventory_type = 'item'")
             await migrate("upgrade", "head")
             with psycopg.connect(
                 url.set(drivername="postgresql", database=name).render_as_string(

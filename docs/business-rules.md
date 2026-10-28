@@ -149,3 +149,57 @@ reconstructed automatically. Audit/import those separately before production.
 Supplier purchase returns and bulk-sale reversals need explicit return documents;
 negative sale quantities and settlement reversals are not substitutes. This
 release supports customer item returns and supplier settlement corrections.
+
+## Frontend readiness corrections
+
+### Retryable operations
+
+`POST /purchases/item`, `/purchases/stock`, and `/inventory/stocks/transfer` now
+require an `Idempotency-Key` header (1–100 characters, not blank), under `/api/v1`.
+Generate a new key for each intentional operation. Retain the same key, request
+data, and signed-in account when retrying after a timeout. Keys are scoped to the
+user and operation. The original result and all business changes commit atomically;
+a matching replay returns the original status/body, even if stock has since changed.
+Reusing a key with different data returns 409. Failed transactions do not reserve
+a key, so a corrected request may reuse it after a confirmed failure. Do not
+silently drop this header in proxies or create a new key for an uncertain retry.
+CORS permits this header for configured frontend origins.
+
+### Product types and inactive records
+
+Product `inventory_type` is either `item` or `bulk`. Item purchases accept only
+item products, bulk purchases only bulk products. A product's type cannot change
+after it has purchase references; create another product instead. The migration
+rejects unknown legacy labels or incompatible purchase references rather than
+guessing a mapping. Classify or split any such existing products explicitly before upgrading. It does not rewrite historic barcodes.
+
+Supplier/location creation honors `is_active`. New purchases, sales and supplier
+settlements require active trading entities. Transfers require active source and
+destination locations, and returns require an active receiving location.
+Historical reads and settlement reversals remain available for inactive entities.
+Omitted PATCH fields preserve current values. Explicit null is rejected for
+required fields; nullable fields such as customer phone and location address can
+be cleared. Names and contact fields are validated against database lengths.
+
+### Return, transfer and balance reads
+
+Authenticated staff can read these paginated list/detail endpoints:
+
+- `/api/v1/inventory/returns` and `/returns/{return_id}` include the sale, sale
+  line, inventory item, location, refund, actor and timestamp.
+- `/api/v1/inventory/transfers/items` and `/transfers/items/{transfer_id}` expose
+  item transfer events. Item-transfer POST retains its item `id` and additionally
+  returns `transfer_id` for opening the history detail.
+- `/api/v1/inventory/transfers/stocks` and `/transfers/stocks/{transfer_id}` expose
+  bulk transfer documents, including both locations/placements, purity and weight.
+
+History lists support location, actor and offset-aware `from_at`/`to_at` filters;
+returns additionally accept sale/line/item IDs, item transfers accept item and
+from/to locations, and bulk transfers accept purity and source/destination
+locations/placements. Use OpenAPI for exact parameter names. The standard
+`limit`, `offset`, and pagination headers apply.
+
+Sale-line reads now include `returned`, `return_id`, `refund_usd`, and `returned_at`.
+A resale has a new sale line; a previous line's returned state stays attached to
+that original sale. `/api/v1/balance` now supports standard pagination plus
+`location_id`, `purity_id`, and `placement` (`factory`/`showroom`) filters.

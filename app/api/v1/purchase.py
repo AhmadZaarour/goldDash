@@ -16,6 +16,7 @@ from app.schemas.purchases import (
     PurchaseStockCreate,
     PurchaseStockResponse,
 )
+from app.services.idempotency import IdempotencyKey, claim_operation, complete_operation
 from app.services.purchase_service import (
     create_item_purchase,
     create_stock_purchase,
@@ -39,8 +40,14 @@ async def create_items_purchase_endpoint(
     purchase_data: PurchaseCreate,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: AdminUser,
+    idempotency_key: IdempotencyKey,
 ) -> PurchaseResponse:
 
+    receipt, replayed = await claim_operation(
+        db, current_user.id, "purchase:item", idempotency_key, purchase_data
+    )
+    if replayed:
+        return PurchaseResponse.model_validate(receipt.response_data)
     purchase_data = purchase_data.model_copy(
         update={"created_by": current_user.id, "created_at": datetime.now(UTC)}
     )
@@ -48,13 +55,16 @@ async def create_items_purchase_endpoint(
         purchase = await create_item_purchase(
             db,
             purchase_data,
+            commit=False,
         )
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(exc),
         ) from exc
-    return purchase
+    result = PurchaseResponse.model_validate(purchase)
+    await complete_operation(db, receipt, result)
+    return result
 
 
 @router.post(
@@ -66,7 +76,13 @@ async def create_stock_purchase_endpoint(
     purchase_data: PurchaseStockCreate,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: AdminUser,
+    idempotency_key: IdempotencyKey,
 ) -> PurchaseResponse:
+    receipt, replayed = await claim_operation(
+        db, current_user.id, "purchase:stock", idempotency_key, purchase_data
+    )
+    if replayed:
+        return PurchaseResponse.model_validate(receipt.response_data)
     purchase_data = purchase_data.model_copy(
         update={"created_by": current_user.id, "created_at": datetime.now(UTC)}
     )
@@ -74,13 +90,16 @@ async def create_stock_purchase_endpoint(
         purchase = await create_stock_purchase(
             db,
             purchase_data,
+            commit=False,
         )
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(exc),
         ) from exc
-    return purchase
+    result = PurchaseResponse.model_validate(purchase)
+    await complete_operation(db, receipt, result)
+    return result
 
 
 @router.get(

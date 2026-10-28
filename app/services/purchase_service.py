@@ -5,7 +5,6 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.inventoryBalance import InventoryBalance
-from app.models.product import Product
 from app.models.purchase import Purchase
 from app.models.purchaseItem import PurchaseItem
 from app.models.purchaseStock import PurchaseStock
@@ -23,13 +22,27 @@ from app.services.inventory_service import (
     create_movement,
     create_stock,
 )
+from app.services.product_inventory_type import validate_purchase_product
 from app.services.supplier_ledger_service import post_entry
+from app.services.transaction_validation import require_active_location, require_active_supplier
 
 
 async def create_item_purchase(
     db: AsyncSession,
     purchase_data: PurchaseCreate,
+    *,
+    commit: bool = True,
 ) -> Purchase:
+    try:
+        await require_active_location(db, purchase_data.location_id)
+        await require_active_supplier(db, purchase_data.supplier_id)
+        products = {
+            product_id: await validate_purchase_product(db, product_id, "item")
+            for product_id in sorted({line.product_id for line in purchase_data.items})
+        }
+    except Exception:
+        await db.rollback()
+        raise
     purchase = Purchase(**purchase_data.model_dump(exclude={"items"}, exclude_none=True))
     db.add(purchase)
 
@@ -70,9 +83,7 @@ async def create_item_purchase(
                 ),
             )
 
-            product = await db.scalar(select(Product).where(Product.id == line.product_id))
-            if product is None:
-                raise ValueError(f"Product {line.product_id} does not exist")
+            product = products[line.product_id]
             grams, usd = totals.get(product.purity_id, (Decimal("0"), Decimal("0")))
             totals[product.purity_id] = (
                 grams + Decimal(str(line.gold_charge_in_grams)),
@@ -92,7 +103,8 @@ async def create_item_purchase(
             )
 
         await db.flush()
-        await db.commit()
+        if commit:
+            await db.commit()
     except Exception:
         await db.rollback()
         raise
@@ -104,7 +116,16 @@ async def create_item_purchase(
 async def create_stock_purchase(
     db: AsyncSession,
     purchase_data: PurchaseStockCreate,
+    *,
+    commit: bool = True,
 ) -> Purchase:
+    try:
+        await require_active_location(db, purchase_data.location_id)
+        await require_active_supplier(db, purchase_data.supplier_id)
+        product = await validate_purchase_product(db, purchase_data.item.product_id, "bulk")
+    except Exception:
+        await db.rollback()
+        raise
     purchase = Purchase(**purchase_data.model_dump(exclude={"item"}, exclude_none=True))
     db.add(purchase)
     try:
@@ -127,11 +148,6 @@ async def create_stock_purchase(
             ),
         )
 
-        product = await db.scalar(
-            select(Product).where(Product.id == purchase_data.item.product_id)
-        )
-        if product is None:
-            raise ValueError(f"Product {purchase_data.item.product_id} does not exist")
         statement = insert(InventoryBalance).values(
             purity_id=product.purity_id,
             location_id=purchase.location_id,
@@ -157,7 +173,9 @@ async def create_stock_purchase(
             created_by=purchase.created_by,
             purchase_id=purchase.id,
         )
-        await db.commit()
+        await db.flush()
+        if commit:
+            await db.commit()
     except Exception:
         await db.rollback()
         raise

@@ -26,12 +26,18 @@ from app.services.inventoryBalance_service import (
     inventory_balance_update,
 )
 from app.services.supplier_ledger_service import post_entry
+from app.services.transaction_validation import require_active_location, require_active_supplier
 
 
 async def create_item_sale(
     db: AsyncSession,
     sale_data: SaleCreate,
 ) -> Sale:
+    try:
+        await require_active_location(db, sale_data.location_id)
+    except Exception:
+        await db.rollback()
+        raise
     sale = Sale(**sale_data.model_dump(exclude={"items"}, exclude_none=True))
     db.add(sale)
 
@@ -99,6 +105,12 @@ async def create_stock_sale(
     db: AsyncSession,
     sale_data: SaleStockCreate,
 ) -> Sale:
+    try:
+        await require_active_location(db, sale_data.location_id)
+        await require_active_supplier(db, sale_data.item.supplier_id)
+    except Exception:
+        await db.rollback()
+        raise
     sale = Sale(**sale_data.model_dump(exclude={"item"}, exclude_none=True))
     db.add(sale)
     try:

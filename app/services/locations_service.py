@@ -1,8 +1,9 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.schemas.locations import LocationCreate, LocationUpdate
 from app.models.location import Location
+from app.schemas.locations import LocationCreate, LocationUpdate
+
 
 async def create_location(
     db: AsyncSession,
@@ -22,6 +23,7 @@ async def create_location(
         name=location_data.name,
         code=location_data.code,
         address=location_data.address,
+        is_active=location_data.is_active,
     )
 
     db.add(location)
@@ -31,15 +33,15 @@ async def create_location(
 
     return location
 
+
 async def get_locations(
-        db: AsyncSession,
+    db: AsyncSession,
 ) -> list[Location]:
 
-    locations = await db.scalars(
-        select(Location).order_by(Location.id)
-    )
+    locations = await db.scalars(select(Location).order_by(Location.id))
 
     return list(locations.all())
+
 
 async def get_location(
     db: AsyncSession,
@@ -51,6 +53,7 @@ async def get_location(
             Location.id == location_id,
         )
     )
+
 
 async def update_location(
     db: AsyncSession,

@@ -12,10 +12,11 @@ from app.core.authorization import AdminUser
 from app.core.database import get_db
 from app.core.dependencies import CurrentUser
 from app.core.pagination import paginate
-from app.models import GoldPurity, Location, Supplier
+from app.models import GoldPurity, Supplier
 from app.models.cashLedger import CashEntry
 from app.models.supplierLedger import SupplierLedgerEntry
 from app.services.supplier_ledger_service import post_entry, supplier_balance
+from app.services.transaction_validation import require_active_location, require_active_supplier
 
 router = APIRouter(prefix="/suppliers", tags=["Supplier ledger"])
 
@@ -61,12 +62,14 @@ async def settle(
     db: Annotated[AsyncSession, Depends(get_db)],
     user: AdminUser,
 ):
-    if await db.get(Supplier, supplier_id) is None:
-        raise HTTPException(404, "Supplier not found")
+    try:
+        await require_active_supplier(db, supplier_id)
+        if data.location_id is not None:
+            await require_active_location(db, data.location_id)
+    except ValueError as error:
+        raise HTTPException(409, str(error)) from error
     if data.purity_id is not None and await db.get(GoldPurity, data.purity_id) is None:
         raise HTTPException(404, "Purity not found")
-    if data.location_id is not None and await db.get(Location, data.location_id) is None:
-        raise HTTPException(404, "Location not found")
     sign = -1 if data.direction == "sent" else 1
     key = f"settlement:{supplier_id}:{data.idempotency_key}"
     if await db.scalar(select(SupplierLedgerEntry.id).where(SupplierLedgerEntry.source_key == key)):

@@ -32,7 +32,7 @@ class PurchaseCreate(BaseModel):
 
 
 class PurchaseStockItemCreate(BaseModel):
-    making_charge: Decimal = Field(default=0, ge=0, decimal_places=2, max_digits=14)
+    making_charge: Decimal = Field(default=Decimal("0"), ge=0, decimal_places=2, max_digits=14)
     product_id: int
     stock_for: Literal["factory", "showroom"]
     weight: Decimal = Field(gt=0, decimal_places=3, max_digits=12)

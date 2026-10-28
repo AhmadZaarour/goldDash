@@ -135,10 +135,23 @@ async def client(
         db.add(admin)
         await db.commit()
         token = create_access_token(str(admin.id))
+
+    async def set_operation_key(request):
+        if request.method == "POST" and request.url.path in {
+            "/api/v1/purchases/item",
+            "/api/v1/purchases/stock",
+            "/api/v1/inventory/stocks/transfer",
+        }:
+            request.headers.setdefault("Idempotency-Key", str(uuid4()))
+
     transport = ASGITransport(app=app)
 
     try:
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
+        async with AsyncClient(
+            transport=transport,
+            base_url="http://test",
+            event_hooks={"request": [set_operation_key]},
+        ) as client:
             client.headers["Authorization"] = f"Bearer {token}"
             client.test_session_factory = test_session_factory
             yield client

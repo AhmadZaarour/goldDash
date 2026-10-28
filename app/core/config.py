@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     app_name: str = "Gold Shop API"
     app_version: str = "0.1.0"
     debug: bool = False
+    item_image_dir: str = "var/item-images"
     cors_origins: list[str] = []
 
     database_url: str

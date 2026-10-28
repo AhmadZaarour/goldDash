@@ -59,5 +59,13 @@ the test PostgreSQL role needs CREATEDB. Coverage must remain at least 80%.
    transactions. Do not downgrade migrations against live accounting data without
    a reviewed recovery plan and backup.
 
-Printing, image hosting/uploads, supplier invoice return documents, and bank/cash
-expense workflows are separate integrations. Images remain URL-only.
+Printing, supplier invoice return documents, and bank workflows remain separate
+integrations. Shop cash expenses and withdrawals are supported. Item photos can
+use authenticated local uploads or an existing external image URL.
+
+## Frontend
+
+The bilingual English/Arabic React frontend is in [frontend](frontend/README.md).
+Start the API, then run `npm ci && npm run dev` in `frontend/`. Printer integration
+remains deferred. Phone photos use authenticated local storage; mount and back up
+`ITEM_IMAGE_DIR` before deployment.

@@ -10,6 +10,7 @@ from app.api.v1.inventory_history import router as inventory_history_router
 from app.api.v1.inventory_operations import router as inventory_operations_router
 from app.api.v1.inventoryBalance import router as inventory_balance_router
 from app.api.v1.inventoryServicing import router as servicing_router
+from app.api.v1.item_photos import router as item_photos_router
 from app.api.v1.legacy_books import router as legacy_books_router
 from app.api.v1.locations import router as locations_router
 from app.api.v1.products import router as products_router
@@ -51,3 +52,5 @@ api_router.include_router(inventory_operations_router, dependencies=[Depends(get
 api_router.include_router(legacy_books_router, dependencies=[Depends(get_current_user)])
 
 api_router.include_router(cash_router, dependencies=[Depends(get_current_user)])
+
+api_router.include_router(item_photos_router, dependencies=[Depends(get_current_user)])

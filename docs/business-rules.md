@@ -91,7 +91,12 @@ the frontend integration. Bulk stock has no barcode or image.
 
 Individual purchase lines accept optional HTTP(S) `image_url` up to 2,048 characters.
 `PATCH /api/v1/inventory/items/{id}/image` accepts `{"image_url": "https://..."}`
-or `{"image_url": null}`. URLs are stored, not fetched; uploads remain out of scope.
+or `{"image_url": null}`. External URLs are stored, not fetched. Cashiers/admins can instead upload a phone
+photo with `POST /api/v1/inventory/items/{id}/photo` (raw JPEG/PNG/WebP bytes,
+maximum 10 MB). The backend normalizes it to JPEG, removes metadata, resizes it
+and stores it in ITEM_IMAGE_DIR. `/api/v1/media/items/{filename}` requires a bearer
+token; the frontend displays these through authenticated blob requests. Persistent
+storage and image backups must be configured for deployment.
 
 Inventory reads:
 

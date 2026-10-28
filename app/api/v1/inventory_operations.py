@@ -14,11 +14,12 @@ from app.models import (
     InventoryBalance,
     InventoryItem,
     InventoryMovement,
-    Location,
     SaleItem,
 )
 from app.models.cashLedger import CashEntry
 from app.models.itemReturn import ItemReturn
+from app.services.idempotency import IdempotencyKey, claim_operation, complete_operation
+from app.services.transaction_validation import require_active_location
 
 router = APIRouter(prefix="/inventory", tags=["Inventory operations"])
 Database = Annotated[AsyncSession, Depends(get_db)]
@@ -44,9 +45,10 @@ class StockTransfer(BaseModel):
 
 
 async def active_location(db, location_id):
-    location = await db.get(Location, location_id)
-    if location is None or not location.is_active:
-        raise HTTPException(404, "Active location not found")
+    try:
+        await require_active_location(db, location_id)
+    except ValueError as error:
+        raise HTTPException(409, str(error)) from error
 
 
 @router.post("/items/{item_id}/transfer")
@@ -57,20 +59,25 @@ async def transfer_item(item_id: int, data: ItemTransfer, db: Database, user: Em
     )
     if item is None:
         raise HTTPException(404, "Item not found")
+    await active_location(db, item.location_id)
     if item.status != "in_stock" or item.location_id == data.location_id:
         raise HTTPException(409, "Item must be available at a different location")
-    db.add(
-        InventoryMovement(
-            inventory_item_id=item.id,
-            movement_type="transfer",
-            from_location_id=item.location_id,
-            to_location_id=data.location_id,
-            created_by=user.id,
-        )
+    movement = InventoryMovement(
+        inventory_item_id=item.id,
+        movement_type="transfer",
+        from_location_id=item.location_id,
+        to_location_id=data.location_id,
+        created_by=user.id,
     )
+    db.add(movement)
     item.location_id = data.location_id
     await db.commit()
-    return {"id": item.id, "location_id": item.location_id, "status": item.status}
+    return {
+        "id": item.id,
+        "transfer_id": movement.id,
+        "location_id": item.location_id,
+        "status": item.status,
+    }
 
 
 @router.post("/returns", status_code=201)
@@ -129,7 +136,12 @@ class StockTransferResponse(BaseModel):
 
 
 @router.post("/stocks/transfer", response_model=StockTransferResponse)
-async def transfer_stock(data: StockTransfer, db: Database, user: EmployeeUser):
+async def transfer_stock(
+    data: StockTransfer, db: Database, user: EmployeeUser, idempotency_key: IdempotencyKey
+):
+    receipt, replayed = await claim_operation(db, user.id, "stock:transfer", idempotency_key, data)
+    if replayed:
+        return StockTransferResponse.model_validate(receipt.response_data)
     if await db.get(GoldPurity, data.purity_id) is None:
         raise HTTPException(404, "Purity not found")
     source = (data.source_location_id, data.source_placement)
@@ -179,9 +191,11 @@ async def transfer_stock(data: StockTransfer, db: Database, user: EmployeeUser):
         created_by=user.id,
     )
     db.add(record)
-    await db.commit()
-    return {
-        "id": record.id,
-        "source_weight": balances[source].total_weight,
-        "destination_weight": balances[destination].total_weight,
-    }
+    await db.flush()
+    result = StockTransferResponse(
+        id=record.id,
+        source_weight=balances[source].total_weight,
+        destination_weight=balances[destination].total_weight,
+    )
+    await complete_operation(db, receipt, result)
+    return result

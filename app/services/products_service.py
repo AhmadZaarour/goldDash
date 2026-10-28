@@ -2,6 +2,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.product import Product
+from app.models.purchaseItem import PurchaseItem
+from app.models.purchaseStock import PurchaseStock
 from app.schemas.products import ProductCreate, ProductUpdate
 
 
@@ -65,9 +67,25 @@ async def update_product(
     product_data: ProductUpdate,
 ) -> Product:
 
-    update_data = product_data.model_dump(
-        exclude_unset=True,
+    # Purchase writers hold shared locks on this row until their references commit.
+    product = await db.scalar(
+        select(Product)
+        .where(Product.id == product.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
+    if product is None:
+        raise ValueError("Product no longer exists")
+    update_data = product_data.model_dump(exclude_unset=True)
+    if "inventory_type" in update_data and update_data["inventory_type"] != product.inventory_type:
+        item_reference = await db.scalar(
+            select(PurchaseItem.id).where(PurchaseItem.product_id == product.id).limit(1)
+        )
+        stock_reference = await db.scalar(
+            select(PurchaseStock.id).where(PurchaseStock.product_id == product.id).limit(1)
+        )
+        if item_reference is not None or stock_reference is not None:
+            raise ValueError("Inventory type cannot change after the product has been purchased")
 
     if "sku" in update_data:
         existing_product = await db.scalar(

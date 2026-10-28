@@ -63,6 +63,10 @@ class SaleResponse(BaseModel):
 
 
 class SaleItemResponse(BaseModel):
+    returned: bool
+    return_id: int | None
+    refund_usd: Decimal
+    returned_at: datetime | None
     model_config = ConfigDict(from_attributes=True)
 
     id: int

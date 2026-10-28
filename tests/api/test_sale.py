@@ -94,7 +94,9 @@ async def test_create_sale_stock(
     )
     location_response = await test_create_location(client)
     supplire_response = await test_create_supplier(client)
-    product_response = await test_create_product(client, test_session_factory)
+    product_response = await test_create_product(
+        client, test_session_factory, inventory_type="bulk"
+    )
     await test_create_purchase_stock(
         client,
         test_session_factory,

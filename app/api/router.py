@@ -6,6 +6,7 @@ from app.api.v1.categories import router as categories_router
 from app.api.v1.customers import router as customers_router
 from app.api.v1.goldPurities import router as gold_purities_router
 from app.api.v1.inventory import router as inventory_router
+from app.api.v1.inventory_history import router as inventory_history_router
 from app.api.v1.inventory_operations import router as inventory_operations_router
 from app.api.v1.inventoryBalance import router as inventory_balance_router
 from app.api.v1.inventoryServicing import router as servicing_router
@@ -32,6 +33,7 @@ routers = [
     suppliers_router,
     customers_router,
     locations_router,
+    inventory_history_router,
     inventory_router,
     inventory_balance_router,
     purchase_router,

@@ -9,6 +9,7 @@ from app.models.user import User
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
+
 def admin_payload() -> dict[str, str]:
     suffix = uuid4().hex
     return {
@@ -17,6 +18,7 @@ def admin_payload() -> dict[str, str]:
         "password": "TestPassword123!",
         "role": "admin",
     }
+
 
 async def create_test_admin(
     admin_data: dict[str, str],
@@ -33,6 +35,7 @@ async def create_test_admin(
         await db.commit()
         await db.refresh(admin)
         return admin
+
 
 async def login_admin_user(
     client: AsyncClient,
@@ -61,6 +64,7 @@ async def test_create_admin(test_session_factory: async_sessionmaker[AsyncSessio
     assert admin.role == "admin"
     assert verify_password(payload["password"], admin.password_hash)
 
+
 def gold_purity_payload() -> dict[str, str]:
     suffix = uuid4().hex
     return {
@@ -69,13 +73,16 @@ def gold_purity_payload() -> dict[str, str]:
         "purity": 99.9,
     }
 
+
 def category_payload() -> dict[str, str]:
     suffix = uuid4().hex
     return {
         "name": f"category-{suffix}",
         "description": f"description-{suffix}",
     }
-def product_payload(p_id: int, c_id: int) -> dict[str, str]:
+
+
+def product_payload(p_id: int, c_id: int, inventory_type: str = "item") -> dict[str, str]:
     suffix = uuid4().hex
     return {
         "sku": f"sku-{suffix}",
@@ -83,12 +90,14 @@ def product_payload(p_id: int, c_id: int) -> dict[str, str]:
         "description": f"description-{suffix}",
         "category_id": c_id,
         "purity_id": p_id,
-        "inventory_type": "type",
+        "inventory_type": inventory_type,
     }
+
 
 async def test_create_product(
     client: AsyncClient,
     test_session_factory: async_sessionmaker[AsyncSession],
+    inventory_type: str = "item",
 ):
     # Register and login a user to get an access token
     login_response = await login_admin_user(client, test_session_factory)
@@ -113,7 +122,9 @@ async def test_create_product(
     assert response_gold_purity.status_code == 201
 
     # Create a product payload
-    payload = product_payload(response_gold_purity.json()["id"], response_category.json()["id"])
+    payload = product_payload(
+        response_gold_purity.json()["id"], response_category.json()["id"], inventory_type
+    )
 
     # Make a request to create a product
     response = await client.post(

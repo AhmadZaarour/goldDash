@@ -1,13 +1,22 @@
 from datetime import datetime
+from enum import StrEnum
 
-from sqlalchemy import DateTime, ForeignKey, String, func
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 
 
+class InventoryType(StrEnum):
+    ITEM = "item"
+    BULK = "bulk"
+
+
 class Product(Base):
     __tablename__ = "products"
+    __table_args__ = (
+        CheckConstraint("inventory_type IN ('item', 'bulk')", name="ck_product_inventory_type"),
+    )
 
     id: Mapped[int] = mapped_column(
         primary_key=True,

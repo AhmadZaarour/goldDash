@@ -111,7 +111,9 @@ async def test_create_purchase_stock(
         "api/v1/users/me", headers={"Authorization": f"Bearer {access_token}"}
     )
     if product_id is None:
-        product_response = await test_create_product(client, test_session_factory)
+        product_response = await test_create_product(
+            client, test_session_factory, inventory_type="bulk"
+        )
         product_id = product_response.json()["id"]
     if location_id is None:
         location_response = await test_create_location(client)

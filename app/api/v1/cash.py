@@ -1,9 +1,9 @@
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +13,8 @@ from app.core.database import get_db
 from app.core.pagination import paginate
 from app.models import Location
 from app.models.cashLedger import CashEntry, CashReconciliation
+from app.services.idempotency import IdempotencyKey, claim_operation, complete_operation
+from app.services.transaction_validation import require_active_location
 
 router = APIRouter(prefix="/cash", tags=["Cash"])
 Database = Annotated[AsyncSession, Depends(get_db)]
@@ -25,6 +27,8 @@ class CashEntryResponse(BaseModel):
     sale_id: int | None
     return_id: int | None
     supplier_entry_id: int | None
+    description: str | None
+    category: str | None
     kind: str
     amount_usd: Decimal
     created_by: int
@@ -79,12 +83,25 @@ async def entries(
     offset: int = Query(0, ge=0),
     from_at: AwareDatetime | None = None,
     to_at: AwareDatetime | None = None,
+    kind: Literal[
+        "sale",
+        "refund",
+        "supplier_sent",
+        "supplier_received",
+        "supplier_reversal",
+        "expense",
+        "withdrawal",
+    ]
+    | None = None,
 ):
     if from_at and to_at and from_at >= to_at:
         raise HTTPException(422, "from_at must be before to_at")
+    statement = period_statement(location_id, from_at, to_at)
+    if kind is not None:
+        statement = statement.where(CashEntry.kind == kind)
     return await paginate(
         db,
-        period_statement(location_id, from_at, to_at).order_by(CashEntry.id),
+        statement.order_by(CashEntry.id),
         response,
         limit,
         offset,
@@ -96,6 +113,8 @@ class CashSummaryResponse(BaseModel):
     refunded_usd: Decimal
     supplier_sent_usd: Decimal
     supplier_received_usd: Decimal
+    expenses_usd: Decimal
+    withdrawals_usd: Decimal
     supplier_reversals_usd: Decimal
     net_usd: Decimal
 
@@ -122,6 +141,8 @@ async def summary(
         "supplier_sent_usd": -totals.get("supplier_sent", zero),
         "supplier_received_usd": totals.get("supplier_received", zero),
         "supplier_reversals_usd": totals.get("supplier_reversal", zero),
+        "expenses_usd": -totals.get("expense", zero),
+        "withdrawals_usd": -totals.get("withdrawal", zero),
         "net_usd": sum(totals.values(), zero),
     }
 
@@ -172,3 +193,42 @@ async def reconciliations(
         limit,
         offset,
     )
+
+
+class CashOutflowCreate(BaseModel):
+    location_id: int = Field(gt=0)
+    kind: Literal["expense", "withdrawal"]
+    amount_usd: Decimal = Field(gt=0, decimal_places=2, max_digits=14)
+    description: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)
+    ]
+    category: (
+        Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=50)] | None
+    ) = None
+
+
+@router.post("/outflows", response_model=CashEntryResponse, status_code=201)
+async def record_outflow(
+    data: CashOutflowCreate, db: Database, user: AdminUser, idempotency_key: IdempotencyKey
+):
+    receipt, replayed = await claim_operation(db, user.id, "cash:outflow", idempotency_key, data)
+    if replayed:
+        return CashEntryResponse.model_validate(receipt.response_data)
+    try:
+        await require_active_location(db, data.location_id)
+    except ValueError as error:
+        raise HTTPException(409, str(error)) from error
+    entry = CashEntry(
+        location_id=data.location_id,
+        kind=data.kind,
+        amount_usd=-data.amount_usd,
+        description=data.description,
+        category=data.category,
+        created_by=user.id,
+    )
+    db.add(entry)
+    await db.flush()
+    await db.refresh(entry)
+    result = CashEntryResponse.model_validate(entry)
+    await complete_operation(db, receipt, result)
+    return result

@@ -77,8 +77,9 @@ settlements and settlement reversals are included in the same cash ledger.
 
 All times use ISO 8601 with a UTC offset. Time ranges are half-open:
 `from_at <= created_at < to_at`. Reconciliations reject future or reversed periods.
-Cash expenses, bank deposits and opening-balance corrections outside these
-workflows are not yet supported; they must not be inferred from sales totals.
+Shop expenses and drawer withdrawals are recorded through `/cash/outflows` as
+described below. Bank deposits and unrelated opening-balance adjustments remain
+unsupported; they must not be inferred from sales totals.
 
 ## Inventory, images, returns and transfers
 
@@ -203,3 +204,21 @@ Sale-line reads now include `returned`, `return_id`, `refund_usd`, and `returned
 A resale has a new sale line; a previous line's returned state stays attached to
 that original sale. `/api/v1/balance` now supports standard pagination plus
 `location_id`, `purity_id`, and `placement` (`factory`/`showroom`) filters.
+
+
+## Shop expenses and drawer withdrawals
+
+`POST /api/v1/cash/outflows` is admin-only and requires `Idempotency-Key`.
+Send `location_id`, `kind` (`expense` or `withdrawal`), positive `amount_usd`
+(up to two decimal places), and a nonblank `description`; `category` is optional.
+The drawer location must be active. Examples include packaging/rent as expenses
+and owner cash removal as a withdrawal. Do not record supplier payments here:
+their settlement endpoint already posts to the same cash ledger.
+
+Both kinds create negative USD ledger entries, with the author and server time.
+Matching retries return the original entry; a reused key with different data
+returns 409. History includes description/category and accepts a `kind` filter.
+Cash summaries expose positive `expenses_usd` and `withdrawals_usd` totals, and
+subtract both from `net_usd`. Reconciliation includes them automatically, so
+opening cash plus net movement matches the expected drawer cash. These records
+log cash movements; they do not execute payments or modify supplier obligations.

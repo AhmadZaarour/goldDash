@@ -4,8 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import require_role
 from app.models.inventoryServicing import InventoryService
+from app.models.user import UserRole
 from app.schemas.inventoryServicing import (
     ServiceCreate,
     ServiceResponse,
@@ -21,7 +22,7 @@ from app.services.inventoryServicing_service import (
 router = APIRouter(
     prefix="/servicing",
     tags=["Servicing"],
-    dependencies=[Depends(get_current_user)],
+    dependencies=[Depends(require_role(UserRole.ADMIN, UserRole.EMPLOYEE))],
 )
 
 

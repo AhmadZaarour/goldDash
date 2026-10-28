@@ -7,8 +7,8 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.authorization import CashierUser, EmployeeUser
 from app.core.database import get_db
-from app.core.dependencies import CurrentUser
 from app.models import (
     GoldPurity,
     InventoryBalance,
@@ -17,6 +17,7 @@ from app.models import (
     Location,
     SaleItem,
 )
+from app.models.cashLedger import CashEntry
 from app.models.itemReturn import ItemReturn
 
 router = APIRouter(prefix="/inventory", tags=["Inventory operations"])
@@ -49,10 +50,10 @@ async def active_location(db, location_id):
 
 
 @router.post("/items/{item_id}/transfer")
-async def transfer_item(item_id: int, data: ItemTransfer, db: Database, user: CurrentUser):
+async def transfer_item(item_id: int, data: ItemTransfer, db: Database, user: EmployeeUser):
     await active_location(db, data.location_id)
     item = await db.scalar(
-        select(InventoryItem).where(InventoryItem.id == item_id).with_for_update()
+        select(InventoryItem).where(InventoryItem.id == item_id).with_for_update(of=InventoryItem)
     )
     if item is None:
         raise HTTPException(404, "Item not found")
@@ -73,13 +74,15 @@ async def transfer_item(item_id: int, data: ItemTransfer, db: Database, user: Cu
 
 
 @router.post("/returns", status_code=201)
-async def return_item(data: ItemReturnCreate, db: Database, user: CurrentUser):
+async def return_item(data: ItemReturnCreate, db: Database, user: CashierUser):
     await active_location(db, data.location_id)
     line = await db.get(SaleItem, data.sale_item_id)
     if line is None:
         raise HTTPException(404, "Sale line not found")
     item = await db.scalar(
-        select(InventoryItem).where(InventoryItem.id == line.inventory_item_id).with_for_update()
+        select(InventoryItem)
+        .where(InventoryItem.id == line.inventory_item_id)
+        .with_for_update(of=InventoryItem)
     )
     existing = await db.scalar(select(ItemReturn.id).where(ItemReturn.sale_item_id == line.id))
     if existing or item.status != "sold":
@@ -103,14 +106,30 @@ async def return_item(data: ItemReturnCreate, db: Database, user: CurrentUser):
             sale_id=line.sale_id,
         )
     )
+    await db.flush()
+    db.add(
+        CashEntry(
+            return_id=record.id,
+            location_id=data.location_id,
+            kind="refund",
+            amount_usd=-data.refund_usd,
+            created_by=user.id,
+        )
+    )
     item.status = "in_stock"
     item.location_id = data.location_id
     await db.commit()
     return {"id": record.id, "inventory_item_id": item.id, "status": item.status}
 
 
-@router.post("/stocks/transfer")
-async def transfer_stock(data: StockTransfer, db: Database, user: CurrentUser):
+class StockTransferResponse(BaseModel):
+    id: int
+    source_weight: Decimal
+    destination_weight: Decimal
+
+
+@router.post("/stocks/transfer", response_model=StockTransferResponse)
+async def transfer_stock(data: StockTransfer, db: Database, user: EmployeeUser):
     if await db.get(GoldPurity, data.purity_id) is None:
         raise HTTPException(404, "Purity not found")
     source = (data.source_location_id, data.source_placement)

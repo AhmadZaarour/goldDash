@@ -21,7 +21,11 @@ class SupplierLedgerEntry(Base):
     purity_id: Mapped[int | None] = mapped_column(ForeignKey("goldPurities.id"))
     purchase_id: Mapped[int | None] = mapped_column(ForeignKey("purchases.id"))
     sale_id: Mapped[int | None] = mapped_column(ForeignKey("sales.id"))
-    source_key: Mapped[str] = mapped_column(String(100), unique=True)
+    source_key: Mapped[str] = mapped_column(String(160), unique=True)
+    reversal_of_id: Mapped[int | None] = mapped_column(
+        ForeignKey("supplier_ledger_entries.id"), unique=True
+    )
+    note: Mapped[str | None] = mapped_column(String(500))
     kind: Mapped[str] = mapped_column(String(30))
     gold_grams: Mapped[Decimal] = mapped_column(Numeric(14, 3))
     making_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2))

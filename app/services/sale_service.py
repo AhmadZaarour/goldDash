@@ -3,6 +3,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.cashLedger import CashEntry
 from app.models.inventoryBalance import InventoryBalance
 from app.models.inventoryItem import InventoryItem
 from app.models.saleItem import SaleItem
@@ -45,7 +46,7 @@ async def create_item_sale(
             select(InventoryItem)
             .where(InventoryItem.id.in_(ids))
             .order_by(InventoryItem.id)
-            .with_for_update()
+            .with_for_update(of=InventoryItem)
         )
         items = {item.id: item for item in locked}
         for line in sale_data.items:
@@ -76,6 +77,15 @@ async def create_item_sale(
                     sale_id=sale.id,
                 ),
             )
+        db.add(
+            CashEntry(
+                sale_id=sale.id,
+                location_id=sale.location_id,
+                kind="sale",
+                amount_usd=sum((line.sell_price for line in sale_data.items), Decimal("0")),
+                created_by=sale.created_by,
+            )
+        )
         await db.flush()
         await db.commit()
     except Exception:

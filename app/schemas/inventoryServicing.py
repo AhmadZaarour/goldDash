@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -10,7 +10,7 @@ class ServiceCreate(BaseModel):
     barcode: str = Field(min_length=1, max_length=50)
     status: str = Field(default="received", min_length=1, max_length=50)
     cost: Decimal = Field(ge=0)
-    created_at: datetime | None = Field(default_factory=datetime.utcnow)
+    created_at: datetime | None = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class ServiceUpdate(BaseModel):

@@ -1,14 +1,18 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.schemas.suppliers import SupplierUpdate, SupplierCreate, SupplierResponse
+from app.core.dependencies import require_role
+from app.core.pagination import paginate
+from app.models.suppliers import Supplier
+from app.models.user import UserRole
+from app.schemas.suppliers import SupplierCreate, SupplierResponse, SupplierUpdate
 from app.services.suppliers_service import (
     create_supplier,
     get_supplier,
-    get_suppliers,
     update_supplier,
 )
 
@@ -17,8 +21,10 @@ router = APIRouter(
     tags=["Suppliers"],
 )
 
+
 @router.post(
     "",
+    dependencies=[Depends(require_role(UserRole.ADMIN))],
     response_model=SupplierResponse,
     status_code=status.HTTP_201_CREATED,
 )
@@ -40,15 +46,23 @@ async def create_supplier_endpoint(
 
     return supplier
 
+
 @router.get(
     "",
     response_model=list[SupplierResponse],
 )
-async def list_suppliers(
+async def list_records(
     db: Annotated[AsyncSession, Depends(get_db)],
+    response: Response,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    q: str | None = Query(default=None, min_length=1, max_length=100),
 ) -> list[SupplierResponse]:
+    statement = select(Supplier).order_by(Supplier.id)
+    if q:
+        statement = statement.where(Supplier.name.icontains(q, autoescape=True))
+    return await paginate(db, statement, response, limit, offset)
 
-    return await get_suppliers(db)
 
 @router.get(
     "/{supplier_id}",
@@ -72,8 +86,10 @@ async def get_supplier_endpoint(
 
     return supplier
 
+
 @router.patch(
     "/{supplier_id}",
+    dependencies=[Depends(require_role(UserRole.ADMIN))],
     response_model=SupplierResponse,
 )
 async def update_supplier_endpoint(

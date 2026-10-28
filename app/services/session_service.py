@@ -40,3 +40,8 @@ async def revoke_refresh_session(
     await redis.delete(
         _session_key(token),
     )
+
+
+async def consume_refresh_user_id(token: str) -> int | None:
+    user_id = await redis.getdel(_session_key(token))
+    return int(user_id) if user_id is not None else None

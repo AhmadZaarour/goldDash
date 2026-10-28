@@ -13,7 +13,9 @@ async def test_servicing_create_read_update(client):
     )
     assert customer.status_code == 201
     payload = {"customer_id": customer.json()["id"], "barcode": "REPAIR-1", "cost": "12.50"}
-    assert (await client.post("/api/v1/servicing", json=payload)).status_code == 401
+    assert (
+        await client.post("/api/v1/servicing", json=payload, headers={"Authorization": ""})
+    ).status_code == 401
     response = await client.post("/api/v1/servicing", json=payload, headers=headers)
     assert response.status_code == 201, response.text
     record = response.json()

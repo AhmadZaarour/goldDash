@@ -1,10 +1,13 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_db
 from app.core.authorization import AdminUser
+from app.core.database import get_db
+from app.core.pagination import paginate
+from app.models.product import Product
 from app.schemas.products import (
     ProductCreate,
     ProductResponse,
@@ -13,10 +16,8 @@ from app.schemas.products import (
 from app.services.products_service import (
     create_product,
     get_product,
-    get_products,
     update_product,
 )
-
 
 router = APIRouter(
     prefix="/products",
@@ -53,11 +54,17 @@ async def create_product_endpoint(
     "",
     response_model=list[ProductResponse],
 )
-async def list_products_endpoint(
+async def list_records(
     db: Annotated[AsyncSession, Depends(get_db)],
+    response: Response,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    q: str | None = Query(default=None, min_length=1, max_length=100),
 ) -> list[ProductResponse]:
-
-    return await get_products(db)
+    statement = select(Product).order_by(Product.id)
+    if q:
+        statement = statement.where(Product.name.icontains(q, autoescape=True))
+    return await paginate(db, statement, response, limit, offset)
 
 
 @router.get(

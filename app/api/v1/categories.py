@@ -1,9 +1,14 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.dependencies import require_role
+from app.core.pagination import paginate
+from app.models.categories import Category
+from app.models.user import UserRole
 from app.schemas.categories import CategoryCreate, CategoryResponse, CategoryUpdate
 from app.services.categories_service import (
     create_category,
@@ -16,8 +21,10 @@ router = APIRouter(
     tags=["Categories"],
 )
 
+
 @router.post(
     "",
+    dependencies=[Depends(require_role(UserRole.ADMIN))],
     response_model=CategoryResponse,
     status_code=status.HTTP_201_CREATED,
 )
@@ -39,6 +46,7 @@ async def create_category_endpoint(
 
     return category
 
+
 @router.get(
     "/{category_id}",
     response_model=CategoryResponse,
@@ -58,11 +66,12 @@ async def get_category_endpoint(
 
     return category
 
+
 @router.patch(
     "/{category_id}",
+    dependencies=[Depends(require_role(UserRole.ADMIN))],
     response_model=CategoryResponse,
 )
-
 async def update_categpry_endpoint(
     category_id: int,
     category_data: CategoryUpdate,
@@ -92,3 +101,17 @@ async def update_categpry_endpoint(
         ) from exc
 
     return new_category
+
+
+@router.get("", response_model=list[CategoryResponse])
+async def list_records(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    response: Response,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    q: str | None = Query(default=None, min_length=1, max_length=100),
+) -> list[CategoryResponse]:
+    statement = select(Category).order_by(Category.id)
+    if q:
+        statement = statement.where(Category.name.icontains(q, autoescape=True))
+    return await paginate(db, statement, response, limit, offset)

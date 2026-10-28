@@ -1,10 +1,13 @@
-from typing import Annotated
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.authorization import EmployeeUser
 from app.core.database import get_db
-from app.core.dependencies import CurrentUser
+from app.core.pagination import paginate
+from app.models import InventoryMovement, InventoryStock, Product, PurchaseItem
 from app.models.inventoryItem import InventoryItem
 from app.schemas.inventory import (
     InventoryItemImageUpdate,
@@ -13,10 +16,7 @@ from app.schemas.inventory import (
     InventoryStockResponse,
 )
 from app.services.inventory_service import (
-    get_all_movements,
-    get_all_stock,
     get_item,
-    get_items,
     get_movement,
     get_stock,
 )
@@ -94,8 +94,39 @@ async def get_movement_endpoint(
 )
 async def get_all_items_endpoint(
     db: Annotated[AsyncSession, Depends(get_db)],
+    response: Response,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    q: str | None = Query(default=None, min_length=1, max_length=100),
+    barcode: str | None = None,
+    purchase_id: int | None = Query(default=None, gt=0),
+    item_status: Literal["in_stock", "sold"] | None = Query(default=None, alias="status"),
+    location_id: int | None = Query(default=None, gt=0),
+    purity_id: int | None = Query(default=None, gt=0),
+    category_id: int | None = Query(default=None, gt=0),
+    sort: Literal["id", "-id"] = "id",
 ) -> list[InventoryItemResponse]:
-    return await get_items(db)
+    statement = select(InventoryItem).join(PurchaseItem).join(Product)
+    if q:
+        statement = statement.where(
+            or_(
+                InventoryItem.barcode.icontains(q, autoescape=True),
+                Product.name.icontains(q, autoescape=True),
+                Product.sku.icontains(q, autoescape=True),
+            )
+        )
+    for column, value in [
+        (PurchaseItem.purchase_id, purchase_id),
+        (InventoryItem.barcode, barcode),
+        (InventoryItem.status, item_status),
+        (InventoryItem.location_id, location_id),
+        (Product.purity_id, purity_id),
+        (Product.category_id, category_id),
+    ]:
+        if value is not None:
+            statement = statement.where(column == value)
+    statement = statement.order_by(InventoryItem.id.desc() if sort == "-id" else InventoryItem.id)
+    return await paginate(db, statement, response, limit, offset)
 
 
 @router.get(
@@ -104,8 +135,15 @@ async def get_all_items_endpoint(
 )
 async def get_all_movements_endpoint(
     db: Annotated[AsyncSession, Depends(get_db)],
+    response: Response,
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    inventory_item_id: int | None = Query(None, gt=0),
 ) -> list[InventoryMovementResponse]:
-    return await get_all_movements(db)
+    statement = select(InventoryMovement)
+    if inventory_item_id is not None:
+        statement = statement.where(InventoryMovement.inventory_item_id == inventory_item_id)
+    return await paginate(db, statement.order_by(InventoryMovement.id), response, limit, offset)
 
 
 @router.get(
@@ -114,8 +152,15 @@ async def get_all_movements_endpoint(
 )
 async def get_all_stock_endpoint(
     db: Annotated[AsyncSession, Depends(get_db)],
+    response: Response,
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    purchase_stock_id: int | None = Query(None, gt=0),
 ) -> list[InventoryStockResponse]:
-    return await get_all_stock(db)
+    statement = select(InventoryStock)
+    if purchase_stock_id is not None:
+        statement = statement.where(InventoryStock.purchase_stock_id == purchase_stock_id)
+    return await paginate(db, statement.order_by(InventoryStock.id), response, limit, offset)
 
 
 @router.patch("/items/{item_id}/image", response_model=InventoryItemResponse)
@@ -123,7 +168,7 @@ async def update_item_image(
     item_id: int,
     data: InventoryItemImageUpdate,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: CurrentUser,
+    current_user: EmployeeUser,
 ) -> InventoryItemResponse:
     item = await db.get(InventoryItem, item_id)
     if item is None:

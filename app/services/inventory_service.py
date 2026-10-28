@@ -1,4 +1,7 @@
+import secrets
+
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.inventoryItem import InventoryItem
@@ -19,25 +22,26 @@ async def create_item(
     item_data: InventoryItemCreate,
 ) -> InventoryItem:
 
-    existing_item = await db.scalar(
-        select(InventoryItem).where(InventoryItem.barcode == item_data.barcode)
-    )
-
-    if existing_item is not None:
-        raise ValueError("Item barcode already exists")
-
-    item = InventoryItem(
-        purchase_item_id=item_data.purchase_item_id,
-        location_id=item_data.location_id,
-        barcode=item_data.barcode,
-        image_url=str(item_data.image_url) if item_data.image_url is not None else None,
-        status=item_data.status,
-    )
-
-    db.add(item)
-    await db.flush()
-
-    return item
+    # PostgreSQL arbitrates uniqueness so concurrent requests cannot share a code.
+    # A barcode collision retries only this insert, preserving the purchase transaction.
+    for _ in range(5):
+        barcode = f"GI{secrets.token_hex(8).upper()}"
+        statement = (
+            insert(InventoryItem)
+            .values(
+                purchase_item_id=item_data.purchase_item_id,
+                location_id=item_data.location_id,
+                barcode=barcode,
+                image_url=str(item_data.image_url) if item_data.image_url is not None else None,
+                status=item_data.status,
+            )
+            .on_conflict_do_nothing(index_elements=[InventoryItem.barcode])
+            .returning(InventoryItem)
+        )
+        item = await db.scalar(statement)
+        if item is not None:
+            return item
+    raise ValueError("Could not generate a unique item barcode; retry the purchase")
 
 
 async def get_items(
@@ -63,16 +67,6 @@ async def update_item(
     update_data = item_data.model_dump(
         exclude_unset=True,
     )
-    if "barcode" in update_data and update_data["barcode"] != item.barcode:
-        existing_item = await db.scalar(
-            select(InventoryItem).where(
-                InventoryItem.barcode == update_data["barcode"],
-                InventoryItem.id != item.id,
-            )
-        )
-        if existing_item is not None:
-            raise ValueError("Item barcode already exists")
-
     for field, value in update_data.items():
         if field == "image_url" and value is not None:
             value = str(value)

@@ -1,7 +1,8 @@
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from sqlalchemy import ForeignKey, Numeric
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 
@@ -25,6 +26,8 @@ class PurchaseItem(Base):
 
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id"))
 
+    product: Mapped["Product"] = relationship(lazy="joined")
+
     weight: Mapped[Decimal] = mapped_column(
         Numeric(14, 3),
     )
@@ -40,3 +43,7 @@ class PurchaseItem(Base):
     making_charge: Mapped[Decimal] = mapped_column(
         Numeric(14, 2),
     )
+
+
+if TYPE_CHECKING:
+    from app.models.product import Product

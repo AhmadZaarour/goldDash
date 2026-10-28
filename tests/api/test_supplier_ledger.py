@@ -41,7 +41,7 @@ async def test_purchase_and_partial_settlements(client, test_session_factory):
     balance = (await client.get(f"{url}/balance", headers=headers)).json()
     assert Decimal(balance["gold_grams_by_purity"][str(purity_id)]) == Decimal("1.000")
     assert Decimal(balance["making_usd"]) == 0
-    assert (await client.get(f"{url}/balance")).status_code == 401
+    assert (await client.get(f"{url}/balance", headers={"Authorization": ""})).status_code == 401
 
 
 async def test_purities_are_not_nettted_and_usd_is_separate(client, test_session_factory):
@@ -70,7 +70,12 @@ async def test_purities_are_not_nettted_and_usd_is_separate(client, test_session
     assert len(balance["gold_grams_by_purity"]) == 2
     assert Decimal(balance["gold_grams_by_purity"][str(purity_id)]) == -2
     assert Decimal(balance["making_usd"]) == -10
-    payment = {"idempotency_key": "usd", "direction": "received", "making_usd": "5.25"}
+    payment = {
+        "idempotency_key": "usd",
+        "direction": "received",
+        "making_usd": "5.25",
+        "location_id": purchase.location_id,
+    }
     result = await client.post(f"{url}/settlements", json=payment, headers=headers)
     assert result.status_code == 201
     assert Decimal(result.json()["making_usd"]) == Decimal("-4.75")
@@ -127,3 +132,87 @@ async def test_invoice_authorship_and_supplier_consistency(client, test_session_
     response = await client.post("/api/v1/purchases/item", json=payload, headers=headers)
     assert response.status_code == 201, response.text
     assert response.json()["created_by"] == me["id"]
+
+
+async def test_history_and_settlement_reversal(client, test_session_factory):
+    purchase_response = await create_stock_purchase(client, test_session_factory)
+    async with test_session_factory() as db:
+        purchase = await db.get(Purchase, purchase_response.json()["id"])
+        entry = await db.scalar(
+            select(SupplierLedgerEntry).where(SupplierLedgerEntry.purchase_id == purchase.id)
+        )
+        supplier_id, purity_id = purchase.supplier_id, entry.purity_id
+    url = f"/api/v1/suppliers/{supplier_id}"
+    payment = {
+        "idempotency_key": "reverse-me",
+        "direction": "sent",
+        "purity_id": purity_id,
+        "gold_grams": "1",
+        "making_usd": "3.50",
+        "location_id": purchase.location_id,
+    }
+    assert (await client.post(f"{url}/settlements", json=payment)).status_code == 201
+    cash = (
+        await client.get("/api/v1/cash/summary", params={"location_id": purchase.location_id})
+    ).json()
+    assert Decimal(cash["net_usd"]) == Decimal("-3.50")
+    history = await client.get(f"{url}/ledger", params={"kind": "settlement", "limit": 1})
+    assert history.status_code == 200
+    assert history.headers["X-Total-Count"] == "1"
+    settlement = history.json()[0]
+    assert Decimal(settlement["gold_grams"]) == -1
+    reversal = await client.post(
+        f"{url}/ledger/{settlement['id']}/reverse",
+        json={"idempotency_key": "reverse-1", "reason": "Entered in error"},
+    )
+    assert reversal.status_code == 201, reversal.text
+    assert reversal.json()["reversal_of_id"] == settlement["id"]
+    assert Decimal(reversal.json()["gold_grams"]) == 1
+    assert Decimal(reversal.json()["making_usd"]) == Decimal("3.50")
+    assert (
+        await client.post(
+            f"{url}/ledger/{settlement['id']}/reverse",
+            json={"idempotency_key": "reverse-2", "reason": "Duplicate"},
+        )
+    ).status_code == 409
+    balance = (await client.get(f"{url}/balance")).json()
+    assert Decimal(balance["gold_grams_by_purity"][str(purity_id)]) == Decimal("2.600")
+    assert Decimal(balance["making_usd"]) == 0
+    cash = (
+        await client.get("/api/v1/cash/summary", params={"location_id": purchase.location_id})
+    ).json()
+    assert Decimal(cash["net_usd"]) == 0
+    all_entries = await client.get(f"{url}/ledger", params={"limit": 1, "offset": 1})
+    assert all_entries.headers["X-Total-Count"] == "3"
+    assert all_entries.json()[0]["id"] == settlement["id"]
+    assert (
+        await client.post(
+            f"{url}/ledger/{entry.id}/reverse",
+            json={"idempotency_key": "wrong", "reason": "Cannot reverse invoice here"},
+        )
+    ).status_code == 409
+
+
+async def test_usd_settlement_requires_cash_location_and_duplicate_is_atomic(
+    client, test_session_factory
+):
+    import asyncio
+
+    from sqlalchemy import func
+
+    from app.models.cashLedger import CashEntry
+
+    purchase_response = await create_stock_purchase(client, test_session_factory)
+    async with test_session_factory() as db:
+        purchase = await db.get(Purchase, purchase_response.json()["id"])
+        supplier_id, location_id = purchase.supplier_id, purchase.location_id
+    url = f"/api/v1/suppliers/{supplier_id}/settlements"
+    payload = {"idempotency_key": "concurrent-payment", "direction": "sent", "making_usd": "10"}
+    assert (await client.post(url, json=payload)).status_code == 422
+    payload["location_id"] = location_id
+    responses = await asyncio.gather(client.post(url, json=payload), client.post(url, json=payload))
+    assert sorted(response.status_code for response in responses) == [201, 409]
+    async with test_session_factory() as db:
+        assert await db.scalar(select(func.count()).select_from(CashEntry)) == 1
+    summary = (await client.get("/api/v1/cash/summary", params={"location_id": location_id})).json()
+    assert Decimal(summary["net_usd"]) == -10

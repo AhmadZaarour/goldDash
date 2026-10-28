@@ -7,7 +7,6 @@ from app.core.security import (
     verify_password,
 )
 from app.models.user import User, UserRole
-from app.schemas.auth import TokenResponse
 from app.schemas.user import UserCreate
 
 
@@ -58,7 +57,7 @@ async def authenticate_user(
         )
     )
 
-    if user is None:
+    if user is None or not user.is_active:
         return None
 
     if not verify_password(

@@ -36,7 +36,8 @@ async def test_item_image_creation_update_and_clear(client, test_session_factory
     response = await client.post("/api/v1/purchases/item", json=payload, headers=headers)
     assert response.status_code == 201, response.text
     items = (await client.get("/api/v1/inventory/items")).json()
-    item = next(row for row in items if row["barcode"] == "WITH-IMAGE")
+    purchase_items = (await client.get(f"/api/v1/purchases/items/{response.json()['id']}")).json()
+    item = next(row for row in items if row["purchase_item_id"] == purchase_items[0]["id"])
     assert item["image_url"] == "https://example.com/ring.jpg"
     url = f"/api/v1/inventory/items/{item['id']}/image"
     updated = await client.patch(
@@ -44,7 +45,7 @@ async def test_item_image_creation_update_and_clear(client, test_session_factory
     )
     assert updated.status_code == 200
     assert updated.json()["image_url"] == "https://example.com/new.jpg"
-    assert updated.json()["barcode"] == "WITH-IMAGE"
+    assert updated.json()["barcode"] == item["barcode"]
     detail_url = f"/api/v1/inventory/items/{item['id']}"
     assert (await client.get(detail_url)).json() == updated.json()
     async with test_session_factory() as db:
@@ -56,7 +57,9 @@ async def test_item_image_creation_update_and_clear(client, test_session_factory
         await client.patch(url, json={"image_url": "not-a-url"}, headers=headers)
     ).status_code == 422
     assert (await client.patch(url, json={}, headers=headers)).status_code == 422
-    assert (await client.patch(url, json={"image_url": None})).status_code == 401
+    assert (
+        await client.patch(url, json={"image_url": None}, headers={"Authorization": ""})
+    ).status_code == 401
     missing = await client.patch(
         "/api/v1/inventory/items/2147483647/image", json={"image_url": None}, headers=headers
     )

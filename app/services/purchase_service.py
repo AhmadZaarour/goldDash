@@ -55,7 +55,6 @@ async def create_item_purchase(
                 InventoryItemCreate(
                     purchase_item_id=purchase_item.id,
                     location_id=purchase.location_id,
-                    barcode=line.barcode,
                     image_url=line.image_url,
                     status="in_stock",
                 ),

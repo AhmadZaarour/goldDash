@@ -26,16 +26,9 @@ async def register_user(client: AsyncClient) -> dict[str, str]:
 
 
 async def login_user(client: AsyncClient) -> dict[str, str]:
-    payload = await register_user(client)
-    response = await client.post(
-        "/api/v1/auth/login",
-        json={
-            "email": payload["email"],
-            "password": payload["password"],
-        },
-    )
-    assert response.status_code == 200
-    return response.json()
+    from tests.api.test_products import login_admin_user
+
+    return await login_admin_user(client, client.test_session_factory)
 
 
 async def test_register_returns_created_user(client: AsyncClient):
@@ -135,7 +128,21 @@ async def test_me_returns_authenticated_user(client: AsyncClient):
 
 
 async def test_me_requires_authentication(client: AsyncClient):
+    client.headers.pop("Authorization", None)
     response = await client.get("/api/v1/auth/me")
 
     assert response.status_code == 401
     assert response.json() == {"detail": "Not authenticated"}
+
+
+async def test_concurrent_refresh_only_one_succeeds(client):
+    import asyncio
+
+    tokens = await login_user(client)
+    responses = await asyncio.gather(
+        *[
+            client.post("/api/v1/auth/refresh", json={"refresh_token": tokens["refresh_token"]})
+            for _ in range(2)
+        ]
+    )
+    assert sorted(response.status_code for response in responses) == [200, 401]

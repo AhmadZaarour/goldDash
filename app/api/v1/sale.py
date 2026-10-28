@@ -1,10 +1,14 @@
+from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.authorization import AdminUser, CashierUser
 from app.core.database import get_db
-from app.core.dependencies import CurrentUser
+from app.core.pagination import paginate
+from app.models.sales import Sale
 from app.schemas.sales import (
     SaleCreate,
     SaleItemResponse,
@@ -17,7 +21,6 @@ from app.services.sale_service import (
     create_stock_sale,
     get_sale,
     get_sale_items,
-    get_sales,
     get_stock_sale,
 )
 
@@ -35,9 +38,11 @@ router = APIRouter(
 async def create_sale_endpoint(
     sale_data: SaleCreate,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: CurrentUser,
+    current_user: CashierUser,
 ) -> SaleResponse:
-    sale_data = sale_data.model_copy(update={"created_by": current_user.id})
+    sale_data = sale_data.model_copy(
+        update={"created_by": current_user.id, "created_at": datetime.now(UTC)}
+    )
     try:
         sale = await create_item_sale(
             db,
@@ -59,9 +64,11 @@ async def create_sale_endpoint(
 async def create_stock_sale_endpoint(
     sale_data: SaleStockCreate,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: CurrentUser,
+    current_user: AdminUser,
 ) -> SaleResponse:
-    sale_data = sale_data.model_copy(update={"created_by": current_user.id})
+    sale_data = sale_data.model_copy(
+        update={"created_by": current_user.id, "created_at": datetime.now(UTC)}
+    )
     try:
         sale = await create_stock_sale(
             db,
@@ -99,10 +106,20 @@ async def get_sale_endpoint(
     "",
     response_model=list[SaleResponse],
 )
-async def get_sales_endpoint(
+async def list_records(
     db: Annotated[AsyncSession, Depends(get_db)],
+    response: Response,
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    location_id: int | None = Query(None, gt=0),
+    q: str | None = Query(None, min_length=1, max_length=50),
 ) -> list[SaleResponse]:
-    return await get_sales(db)
+    statement = select(Sale)
+    if location_id is not None:
+        statement = statement.where(Sale.location_id == location_id)
+    if q:
+        statement = statement.where(Sale.invoice_number.icontains(q, autoescape=True))
+    return await paginate(db, statement.order_by(Sale.id), response, limit, offset)
 
 
 @router.get(

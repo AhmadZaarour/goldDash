@@ -303,3 +303,42 @@ async def test_bulk_transfer_conserves_weight(client, test_session_factory, inve
     async with test_session_factory() as db:
         total = await db.scalar(select(func.sum(InventoryBalance.total_weight)))
         assert total == Decimal("10.000")
+
+
+async def test_generated_barcodes_retry_collisions_without_losing_purchase(
+    test_session_factory, inventory, monkeypatch
+):
+    from app.schemas.inventory import InventoryItemCreate
+    from app.services.inventory_service import create_item
+
+    async with test_session_factory() as db:
+        existing = await db.get(InventoryItem, inventory["item_id"])
+        existing.barcode = "GI" + "A" * 16
+        line = await db.get(PurchaseItem, inventory["line_id"])
+        new_line = PurchaseItem(
+            purchase_id=line.purchase_id,
+            supplier_id=line.supplier_id,
+            product_id=line.product_id,
+            weight=1,
+            gold_price_per_gram=100,
+            gold_charge_in_grams=1,
+            making_charge=5,
+        )
+        db.add(new_line)
+        await db.flush()
+        values = iter(["a" * 16, "b" * 16])
+        monkeypatch.setattr(
+            "app.services.inventory_service.secrets.token_hex", lambda _: next(values)
+        )
+        item = await create_item(
+            db,
+            InventoryItemCreate(
+                purchase_item_id=new_line.id,
+                location_id=inventory["location_id"],
+                status="in_stock",
+            ),
+        )
+        assert item.barcode == "GI" + "B" * 16
+        await db.commit()
+        assert (await db.get(InventoryItem, existing.id)).barcode == "GI" + "A" * 16
+        assert await db.scalar(select(func.count()).select_from(InventoryItem)) == 2

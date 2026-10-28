@@ -1,21 +1,24 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.schemas.customers import CustomerCreate, CustomerUpdate, CustomerResponse
+from app.core.pagination import paginate
+from app.models.customers import Customer
+from app.schemas.customers import CustomerCreate, CustomerResponse, CustomerUpdate
 from app.services.customers_service import (
     create_customer,
-    update_customer,
     get_customer,
-    get_customers
+    update_customer,
 )
 
 router = APIRouter(
     prefix="/customers",
     tags=["Customers"],
 )
+
 
 @router.post(
     "",
@@ -40,15 +43,22 @@ async def create_customer_endpoint(
 
     return customer
 
+
 @router.get(
     "",
     response_model=list[CustomerResponse],
 )
-async def list_customers(
+async def list_records(
     db: Annotated[AsyncSession, Depends(get_db)],
+    response: Response,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    q: str | None = Query(default=None, min_length=1, max_length=100),
 ) -> list[CustomerResponse]:
-
-    return await get_customers(db)
+    statement = select(Customer).order_by(Customer.id)
+    if q:
+        statement = statement.where(Customer.name.icontains(q, autoescape=True))
+    return await paginate(db, statement, response, limit, offset)
 
 
 @router.get(
@@ -72,6 +82,7 @@ async def get_customer_endpoint(
         )
 
     return customer
+
 
 @router.patch(
     "/{customer_id}",

@@ -1,76 +1,151 @@
-# Inventory and supplier accounting
+# Backend business rules and API contract
 
-Supplier purchases and bulk sales settle in gold grams at the transaction's
-purity plus USD making charges. Do not convert or net grams across purities.
-The supplier ledger is the source of running balances; positive values mean the
-shop owes the supplier, negative values mean the supplier owes the shop.
-Purchases increase the obligation; bulk sales decrease it. Settlements sent to
-the supplier decrease it; settlements received increase it. Customer item sales
-do not create supplier receivables or partial-payment plans.
+## Roles and authentication
 
-## API changes
+Only login, refresh, logout, health, readiness, and API documentation are public.
+All business reads require a bearer token. Administrators create employee and
+cashier accounts using `POST /api/v1/auth/register`; bootstrap administrators with
+`python -m app.cli`. Anonymous signup is disabled.
 
-- Both purchase creation endpoints require `supplier_id` on the invoice header.
-  All item lines must name that same supplier. One item line means one uniquely
-  barcoded inventory item. Bulk purchase `item.making_charge` defaults to zero.
-- Purchase and sale creation require authentication. The server takes the author
-  from the bearer token, regardless of the submitted `created_by` value.
-- `GET /api/v1/suppliers/{id}/balance` returns grams grouped by purity ID and a
-  separate USD making-charge balance.
-- `POST /api/v1/suppliers/{id}/settlements` accepts `idempotency_key`, `direction`
-  (`sent` or `received`), `gold_grams`, `purity_id`, and `making_usd`. Gold requires
-  a purity; USD-only settlements do not. Repeated keys return 409 rather than
-  recording another payment. A settlement records accounting, not an automatic
-  physical stock movement: record deliveries through the inventory workflows.
-- Inventory reads use `/inventory/items`, `/inventory/stocks`, and
-  `/inventory/movements`, with `/{id}` for individual records. The old item-only
-  `/inventory` and `/inventory/{id}` routes remain compatibility aliases.
-- `POST /inventory/items/{id}/transfer` takes `location_id` and requires the item
-  to be in stock. Its movement history records the origin, destination and actor.
-- `POST /inventory/returns` takes `sale_item_id`, `location_id`, and `refund_usd`.
-  Each sold line can be returned once. Refunds cannot exceed that line's recorded
-  `sell_price`. The record acknowledges a cash refund; it does not execute a
-  payment. The item becomes available for resale at the return location.
-- `POST /inventory/stocks/transfer` takes `purity_id`, source/destination location
-  IDs and placements, and a positive `weight`. Transfers conserve total weight.
-  All paths above have the `/api/v1` prefix and writes require authentication.
-- `/servicing` is now registered and its cost column uses a valid decimal type.
+| Operation | Roles |
+| --- | --- |
+| Read catalog, inventory, supplier balances/history | All authenticated users |
+| Edit catalog, suppliers, locations, purities and products | Admin |
+| Create purchases, bulk sales to suppliers, supplier settlements/reversals | Admin |
+| Customer sales and item returns | Cashier or admin |
+| Item/stock transfers, images and servicing | Employee or admin |
+| Read cash entries and totals | Cashier or admin |
+| Record/read cash reconciliations | Admin |
 
-Legacy purchaseBook/saleBook endpoints remain for compatibility. They do not
-update the running supplier ledger and should not be used for new supplier
-settlements. Their eventual removal needs a separate API migration.
+Customer creation/updates are available to authenticated staff. Purchase/sale
+actors and creation timestamps come from the server, ignoring client values.
+Inactive accounts cannot log in, refresh, or use existing access tokens. Refresh
+tokens rotate atomically; logout revokes the refresh token. Access tokens expire
+according to ACCESS_TOKEN_EXPIRE_MINUTES and are not revoked by logout alone.
 
-## Integrity and migrations
+## Supplier obligations and settlements
 
-Stock sales lock available balances and reject negative stock; item sales lock
-items, reject duplicates and sold items, and verify the selling location.
-Purchases increment unique purity/location/placement buckets atomically.
-Movement events append rather than overwrite previous events. Prices, charges,
-and weights use fixed-point database storage, with three decimal places for
-gold weight and two for USD charges (four for per-gram rates).
+One purchase invoice belongs to one supplier. Every item line on it must name that
+supplier. One item line means one physical, barcoded piece. Bulk sales are to
+suppliers; customer sales use individual items. A purchase may contain multiple
+purities, which remain separate in the supplier ledger.
 
-The corrective migrations target this disposable development database and the
-previous migration-only schema. They are not an automatic repair for an existing
-production database built using `create_all` or containing ambiguous supplier
-history. Audit and backfill such a database separately before applying them.
+Gold obligations are grams at the transaction's actual purity, without conversion
+or netting across purities. Making charges are USD. Positive balances mean the
+shop owes the supplier; negative balances mean the supplier owes the shop.
+Purchases increase obligations; bulk sales decrease them.
 
-Tests now deploy the schema using Alembic. A separate transient-database test
-checks upgrade, drift detection, downgrade to base, and replay.
+- `GET /api/v1/suppliers/{id}/balance`: grams by purity ID and a separate USD balance.
+- `GET /api/v1/suppliers/{id}/ledger`: immutable history, including invoice links,
+  author, time, corrections and source keys. Filters: `purity_id`, `kind`,
+  `from_at`, `to_at`; standard `limit`/`offset` pagination applies.
+- `POST /api/v1/suppliers/{id}/settlements`: `idempotency_key`, `direction`
+  (`sent` or `received`), `gold_grams`, `purity_id`, `making_usd`, `location_id`.
+  Gold requires a purity. USD settlements are cash-only and require a drawer
+  location. Sent amounts reduce supplier obligations; received amounts increase
+  them. USD simultaneously posts to the cash drawer at that location.
+- `POST /api/v1/suppliers/{id}/ledger/{entry_id}/reverse`: admin-only correction
+  of a settlement, requiring `idempotency_key` and `reason`. It appends opposite
+  supplier and cash entries rather than editing the original. Only one reversal
+  per settlement is allowed. Invoice entries cannot be reversed this way.
 
-## Follow-up work
+Repeated settlement/reversal keys return 409; the frontend must not invent a new
+key on an uncertain retry. It can inspect ledger history to find the original.
+Settlements record gold accounting; physical gold deliveries must use inventory
+workflows. Cash posting does not execute a real-world payment.
 
-Customer identity and a dedicated cash-receipt/reconciliation ledger are not yet
-modeled. Item sale prices and return refunds are recorded, but no payment is
-executed by these endpoints. Supplier return documents and bulk-sale reversals
-need explicit business workflows; do not emulate them with negative quantities.
-Legacy invoice-book removal, case-insensitive identity uniqueness, broader role
-policies, and production data migration remain separate improvements.
+## Customer cash sales and reconciliation
 
-## Item images
+`sell_price` is the final USD amount collected for that item. `discount` is
+informational and is not subtracted a second time. Customer sales automatically
+record the full cash receipt in the same transaction as the sale and inventory
+changes. Partial customer payment is not supported. Optional `customer_id`
+associates a known customer; omission represents a walk-in sale.
 
-Individual purchase lines accept an optional HTTP(S) `image_url` (maximum 2,048
-characters). The URL is stored on the barcoded inventory item and returned by
-item reads. Existing items default to null. Authenticated clients can set or clear
-it with `PATCH /api/v1/inventory/items/{id}/image`, using
-`{"image_url": "https://example.com/item.jpg"}` or `{"image_url": null}`.
-This stores a URL only; it does not upload or fetch images. Bulk stock has no image field.
+Item returns append cash refunds at the receiving location. Supplier USD cash
+settlements and settlement reversals are included in the same cash ledger.
+
+- `GET /api/v1/cash/entries?location_id=...`: paginated cash history with source links.
+- `GET /api/v1/cash/summary?location_id=...`: customer receipts/refunds, supplier
+  payments/receipts, supplier reversals, and net cash movement.
+- `POST /api/v1/cash/reconciliations`: admin records a completed period using
+  `idempotency_key`, `location_id`, `from_at`, `to_at`, `opening_usd`, `counted_usd`.
+  Expected cash equals opening cash plus all recorded cash movement in that period;
+  variance equals counted minus expected. Reconciliation records are immutable
+  reports, not changes to the cash balance.
+- `GET /api/v1/cash/reconciliations?location_id=...`: previous reports.
+
+All times use ISO 8601 with a UTC offset. Time ranges are half-open:
+`from_at <= created_at < to_at`. Reconciliations reject future or reversed periods.
+Cash expenses, bank deposits and opening-balance corrections outside these
+workflows are not yet supported; they must not be inferred from sales totals.
+
+## Inventory, images, returns and transfers
+
+The backend generates item barcodes: `GI` plus 16 uppercase hexadecimal characters.
+The database enforces uniqueness and generation retries collisions. Legacy barcode
+input in purchase requests is ignored. Existing codes are preserved through image
+updates, transfers, returns and resale. Rendering and printing labels belong to
+the frontend integration. Bulk stock has no barcode or image.
+
+Individual purchase lines accept optional HTTP(S) `image_url` up to 2,048 characters.
+`PATCH /api/v1/inventory/items/{id}/image` accepts `{"image_url": "https://..."}`
+or `{"image_url": null}`. URLs are stored, not fetched; uploads remain out of scope.
+
+Inventory reads:
+
+- `/api/v1/inventory/items` and `/items/{id}` return barcode, state, location,
+  image, purchase-line ID, product ID/name/SKU, category, purity, and weight.
+- Item list filters: `q` (barcode/product name/SKU), exact `barcode`, `purchase_id`,
+  `status` (`in_stock`/`sold`), `location_id`, `purity_id`, `category_id`.
+  `sort=id` is the default; `sort=-id` reverses it.
+- `/api/v1/inventory/stocks` and `/stocks/{id}` expose bulk purchase records.
+  The list can filter `purchase_stock_id`.
+- `/api/v1/inventory/movements` and `/movements/{id}` expose append-only item
+  history; the list can filter `inventory_item_id`.
+- Old item-only `/api/v1/inventory` and `/inventory/{id}` remain hidden aliases.
+
+`POST /inventory/items/{id}/transfer` takes `location_id`. The item must be
+available. `POST /inventory/returns` takes `sale_item_id`, `location_id`, and
+`refund_usd`. A sold line can be returned once; its refund cannot exceed its final
+sale price. The returned item becomes available for resale at the receiving
+location. `POST /inventory/stocks/transfer` takes purity, source/destination
+locations and placements, and positive weight. Both buckets change atomically,
+and total weight is conserved. These paths all have the `/api/v1` prefix.
+
+Sales lock items/balances, reject sold items, verify item locations and forbid
+negative stock. Bulk purchases increment unique purity/location/placement buckets
+atomically. Failed transactions roll back inventory, movements, and accounting.
+
+## Lists, errors and retired endpoints
+
+Catalog lists (`categories`, `goldpurities`, `locations`, `suppliers`, `customers`,
+`products`) accept `q` and return arrays sorted by ID. Purchases and sales accept
+`q` for invoice number and `location_id`. Lists use `limit` (1–100, default 50)
+and `offset` (default 0), with `X-Total-Count`, `X-Limit`, and `X-Offset` headers.
+Inventory, supplier history, and cash history use the same pagination convention.
+Financial balance and cash DTOs serialize exact decimal values as JSON strings.
+Database weights and charges use fixed-point storage. Clients must format amounts
+explicitly and must not use floating-point arithmetic for accounting totals.
+
+Errors use FastAPI's `detail` field: string for business errors and a validation
+error array for invalid input. Statuses: 401 unauthenticated, 403 role/inactive
+account, 404 absent record, 409 conflicting data/state or duplicate operation,
+410 retired endpoint, 422 validation, 503 unavailable dependency. SQL and database
+constraint details are not returned to clients.
+
+`purchaseBook` and `saleBook` endpoints are retired and return 410. Their historic
+database tables remain; no new code uses them for supplier accounting. Use the
+supplier ledger and settlements exclusively.
+
+## Deployment boundaries
+
+The original corrective migrations target the disposable development schema, not
+an arbitrary production database previously created with `create_all`. The cash
+migration backfills historic customer item sales and refunds using the confirmed
+cash rules. Older supplier settlements without drawer locations cannot be
+reconstructed automatically. Audit/import those separately before production.
+
+Supplier purchase returns and bulk-sale reversals need explicit return documents;
+negative sale quantities and settlement reversals are not substitutes. This
+release supports customer item returns and supplier settlement corrections.

@@ -3,6 +3,7 @@ import os
 import subprocess
 from collections.abc import AsyncGenerator
 from pathlib import Path
+from uuid import uuid4
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -17,7 +18,9 @@ from sqlalchemy.ext.asyncio import (
 
 from app.core.config import settings
 from app.core.database import Base, get_db
+from app.core.security import create_access_token, hash_password
 from app.main import app
+from app.models.user import User
 from app.services import session_service
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -122,10 +125,22 @@ async def client(
             yield session
 
     app.dependency_overrides[get_db] = override_get_db
+    async with test_session_factory() as db:
+        admin = User(
+            email=f"admin-{uuid4().hex}@example.com",
+            username=f"admin-{uuid4().hex}",
+            role="admin",
+            password_hash=hash_password("FixtureAdminPassword123!"),
+        )
+        db.add(admin)
+        await db.commit()
+        token = create_access_token(str(admin.id))
     transport = ASGITransport(app=app)
 
     try:
         async with AsyncClient(transport=transport, base_url="http://test") as client:
+            client.headers["Authorization"] = f"Bearer {token}"
+            client.test_session_factory = test_session_factory
             yield client
     finally:
         app.dependency_overrides.pop(get_db, None)

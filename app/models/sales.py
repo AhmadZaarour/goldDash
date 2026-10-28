@@ -33,6 +33,8 @@ class Sale(Base):
         nullable=False,
     )
 
+    customer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.id"))
+
     location_id: Mapped[int] = mapped_column(
         ForeignKey("locations.id"),
     )

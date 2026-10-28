@@ -1,5 +1,7 @@
+from typing import TYPE_CHECKING
+
 from sqlalchemy import ForeignKey, String
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 
@@ -22,8 +24,14 @@ class InventoryItem(Base):
         nullable=False,
     )
 
+    purchase_item: Mapped["PurchaseItem"] = relationship(lazy="joined")
+
     image_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
 
     status: Mapped[str] = mapped_column(
         String(50),
     )
+
+
+if TYPE_CHECKING:
+    from app.models.purchaseItem import PurchaseItem

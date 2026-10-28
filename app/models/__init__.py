@@ -1,5 +1,6 @@
 """Register every mapped table for application startup and Alembic."""
 
+from app.models.cashLedger import CashEntry, CashReconciliation
 from app.models.categories import Category
 from app.models.customers import Customer
 from app.models.goldPurities import GoldPurity
@@ -25,6 +26,8 @@ from app.models.suppliers import Supplier
 from app.models.user import User, UserRole
 
 __all__ = [
+    "CashEntry",
+    "CashReconciliation",
     "ItemReturn",
     "StockTransferRecord",
     "SupplierLedgerEntry",

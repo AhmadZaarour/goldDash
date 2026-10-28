@@ -2,51 +2,48 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.models.user import User
+
+from app.core.authorization import AdminUser
 from app.core.database import get_db
 from app.core.dependencies import CurrentUser
+from app.models.user import User
 from app.schemas.auth import (
     LoginRequest,
     RefreshTokenRequest,
     TokenResponse,
 )
-from app.schemas.user import UserResponse, UserCreate
+from app.schemas.user import UserCreate, UserResponse
 from app.services.auth_service import (
-    create_user,
     authenticate_user,
     create_access_token_for_user,
+    create_user,
 )
 from app.services.session_service import (
+    consume_refresh_user_id,
     create_refresh_session,
-    get_refresh_user_id,
     revoke_refresh_session,
 )
-
 
 router = APIRouter(
     prefix="/auth",
     tags=["Authentication"],
 )
 
+
 @router.post(
-        "/register",
-        response_model=UserResponse,
+    "/register",
+    response_model=UserResponse,
 )
 async def register(
     data: UserCreate,
+    admin: AdminUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> UserResponse:
 
-    user = await create_user(
-        db,
-        data,
-    )
-
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="User already exists",
-        )
+    try:
+        user = await create_user(db, data)
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
 
     return user
 
@@ -98,7 +95,7 @@ async def refresh(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> TokenResponse:
 
-    user_id = await get_refresh_user_id(
+    user_id = await consume_refresh_user_id(
         data.refresh_token,
     )
 

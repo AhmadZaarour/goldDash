@@ -1,10 +1,14 @@
+from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.authorization import AdminUser
 from app.core.database import get_db
-from app.core.dependencies import CurrentUser
+from app.core.pagination import paginate
+from app.models.purchase import Purchase
 from app.schemas.purchases import (
     PurchaseCreate,
     PurchaseItemResponse,
@@ -18,7 +22,6 @@ from app.services.purchase_service import (
     get_purchase,
     get_purchase_items,
     get_purchase_stock,
-    get_purchases,
 )
 
 router = APIRouter(
@@ -35,10 +38,12 @@ router = APIRouter(
 async def create_items_purchase_endpoint(
     purchase_data: PurchaseCreate,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: CurrentUser,
+    current_user: AdminUser,
 ) -> PurchaseResponse:
 
-    purchase_data = purchase_data.model_copy(update={"created_by": current_user.id})
+    purchase_data = purchase_data.model_copy(
+        update={"created_by": current_user.id, "created_at": datetime.now(UTC)}
+    )
     try:
         purchase = await create_item_purchase(
             db,
@@ -60,9 +65,11 @@ async def create_items_purchase_endpoint(
 async def create_stock_purchase_endpoint(
     purchase_data: PurchaseStockCreate,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: CurrentUser,
+    current_user: AdminUser,
 ) -> PurchaseResponse:
-    purchase_data = purchase_data.model_copy(update={"created_by": current_user.id})
+    purchase_data = purchase_data.model_copy(
+        update={"created_by": current_user.id, "created_at": datetime.now(UTC)}
+    )
     try:
         purchase = await create_stock_purchase(
             db,
@@ -100,10 +107,20 @@ async def get_purchase_endpoint(
     "",
     response_model=list[PurchaseResponse],
 )
-async def get_purchases_endpoint(
+async def list_records(
     db: Annotated[AsyncSession, Depends(get_db)],
+    response: Response,
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    location_id: int | None = Query(None, gt=0),
+    q: str | None = Query(None, min_length=1, max_length=50),
 ) -> list[PurchaseResponse]:
-    return await get_purchases(db)
+    statement = select(Purchase)
+    if location_id is not None:
+        statement = statement.where(Purchase.location_id == location_id)
+    if q:
+        statement = statement.where(Purchase.invoice_number.icontains(q, autoescape=True))
+    return await paginate(db, statement.order_by(Purchase.id), response, limit, offset)
 
 
 @router.get(

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Literal
 
@@ -9,19 +9,18 @@ class PurchaseLineCreate(BaseModel):
     image_url: HttpUrl | None = Field(default=None, max_length=2048)
     supplier_id: int
     product_id: int
-    weight: Decimal = Field(gt=0)
-    gold_price_per_gram: Decimal = Field(ge=0)
-    gold_charge_in_grams: Decimal = Field(ge=0)
-    making_charge: Decimal = Field(ge=0)
-    barcode: str = Field(min_length=1, max_length=50)
+    weight: Decimal = Field(gt=0, decimal_places=3, max_digits=12)
+    gold_price_per_gram: Decimal = Field(ge=0, decimal_places=4, max_digits=14)
+    gold_charge_in_grams: Decimal = Field(ge=0, decimal_places=3, max_digits=14)
+    making_charge: Decimal = Field(ge=0, decimal_places=2, max_digits=14)
 
 
 class PurchaseCreate(BaseModel):
     supplier_id: int
     invoice_number: str | None = Field(default=None, max_length=50)
     notes: str | None = Field(default=None, max_length=200)
-    created_by: int
-    created_at: datetime | None = Field(default_factory=datetime.utcnow)
+    created_by: int | None = None
+    created_at: datetime | None = Field(default_factory=lambda: datetime.now(UTC))
     location_id: int
     items: list[PurchaseLineCreate] = Field(min_length=1)
 
@@ -33,19 +32,19 @@ class PurchaseCreate(BaseModel):
 
 
 class PurchaseStockItemCreate(BaseModel):
-    making_charge: Decimal = Field(default=0, ge=0)
+    making_charge: Decimal = Field(default=0, ge=0, decimal_places=2, max_digits=14)
     product_id: int
     stock_for: Literal["factory", "showroom"]
-    weight: Decimal = Field(gt=0)
-    cost_per_gram: Decimal = Field(ge=0)
+    weight: Decimal = Field(gt=0, decimal_places=3, max_digits=12)
+    cost_per_gram: Decimal = Field(ge=0, decimal_places=4, max_digits=14)
 
 
 class PurchaseStockCreate(BaseModel):
     supplier_id: int
     invoice_number: str | None = Field(default=None, max_length=50)
     notes: str | None = Field(default=None, max_length=200)
-    created_by: int
-    created_at: datetime | None = Field(default_factory=datetime.utcnow)
+    created_by: int | None = None
+    created_at: datetime | None = Field(default_factory=lambda: datetime.now(UTC))
     location_id: int
     item: PurchaseStockItemCreate
 
@@ -81,8 +80,8 @@ class PurchaseStockResponse(BaseModel):
     purchase_id: int
     product_id: int
     stock_for: str
-    weight: float
-    cost_per_gram: float
+    weight: Decimal
+    cost_per_gram: Decimal
 
 
 class PurchaseResponse(BaseModel):
@@ -103,7 +102,7 @@ class PurchaseItemResponse(BaseModel):
     supplier_id: int
     purchase_id: int
     product_id: int
-    weight: float
-    gold_price_per_gram: float
-    gold_charge_in_grams: float
-    making_charge: float
+    weight: Decimal
+    gold_price_per_gram: Decimal
+    gold_charge_in_grams: Decimal
+    making_charge: Decimal

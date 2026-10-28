@@ -22,7 +22,6 @@ def items_payload(s_id, p_id) -> dict[str, str]:
         "gold_price_per_gram": 100.5,
         "gold_charge_in_grams": 201.5,
         "making_charge": 8.6,
-        "barcode": "52552556",
     }
 
 
@@ -85,7 +84,12 @@ async def test_create_purchase(
         headers={"Authorization": f"Bearer {access_token}"},
     )
     items_response = await client.get(f"api/v1/purchases/items/{response.json()['id']}")
-    inv_response = await client.get(f"api/v1/inventory/{items_response.json()[0]['id']}")
+    inventory = await client.get(
+        "/api/v1/inventory/items", params={"purchase_id": response.json()["id"]}
+    )
+    assert inventory.status_code == 200, inventory.text
+    inv_response = await client.get(f"/api/v1/inventory/items/{inventory.json()[0]['id']}")
+    assert inv_response.status_code == 200, inv_response.text
     assert response.status_code == 201
     data = response.json()
     assert data["invoice_number"] == payload["invoice_number"]

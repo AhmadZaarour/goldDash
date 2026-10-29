@@ -5,6 +5,7 @@ from app.api.v1.cash import router as cash_router
 from app.api.v1.categories import router as categories_router
 from app.api.v1.customers import router as customers_router
 from app.api.v1.goldPurities import router as gold_purities_router
+from app.api.v1.insights import router as insights_router
 from app.api.v1.inventory import router as inventory_router
 from app.api.v1.inventory_history import router as inventory_history_router
 from app.api.v1.inventory_operations import router as inventory_operations_router
@@ -54,3 +55,5 @@ api_router.include_router(legacy_books_router, dependencies=[Depends(get_current
 api_router.include_router(cash_router, dependencies=[Depends(get_current_user)])
 
 api_router.include_router(item_photos_router, dependencies=[Depends(get_current_user)])
+
+api_router.include_router(insights_router, dependencies=[Depends(get_current_user)])

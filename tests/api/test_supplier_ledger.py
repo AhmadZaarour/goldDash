@@ -3,12 +3,31 @@ from decimal import Decimal
 import pytest
 from sqlalchemy import select
 
-from app.models import GoldPurity, Purchase, SupplierLedgerEntry
+from app.models import GoldPurity, Purchase, Sale, SupplierLedgerEntry
+from app.models.cashLedger import CashEntry
 from app.services.supplier_ledger_service import post_entry
 from tests.api.test_auth import login_user
 from tests.api.test_purchase import test_create_purchase_stock as create_stock_purchase
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
+
+
+async def seed_cash(factory, purchase, amount="100"):
+    """Seed a recorded customer cash receipt for settlement tests."""
+    async with factory() as db:
+        sale = Sale(location_id=purchase.location_id, created_by=purchase.created_by)
+        db.add(sale)
+        await db.flush()
+        db.add(
+            CashEntry(
+                location_id=purchase.location_id,
+                sale_id=sale.id,
+                kind="sale",
+                amount_usd=Decimal(amount),
+                created_by=purchase.created_by,
+            )
+        )
+        await db.commit()
 
 
 async def test_purchase_and_partial_settlements(client, test_session_factory):
@@ -25,6 +44,7 @@ async def test_purchase_and_partial_settlements(client, test_session_factory):
     url = f"/api/v1/suppliers/{supplier_id}"
     first = {
         "idempotency_key": "first",
+        "location_id": purchase.location_id,
         "direction": "sent",
         "purity_id": purity_id,
         "gold_grams": "1.100",
@@ -142,6 +162,7 @@ async def test_history_and_settlement_reversal(client, test_session_factory):
             select(SupplierLedgerEntry).where(SupplierLedgerEntry.purchase_id == purchase.id)
         )
         supplier_id, purity_id = purchase.supplier_id, entry.purity_id
+    await seed_cash(test_session_factory, purchase)
     url = f"/api/v1/suppliers/{supplier_id}"
     payment = {
         "idempotency_key": "reverse-me",
@@ -155,7 +176,7 @@ async def test_history_and_settlement_reversal(client, test_session_factory):
     cash = (
         await client.get("/api/v1/cash/summary", params={"location_id": purchase.location_id})
     ).json()
-    assert Decimal(cash["net_usd"]) == Decimal("-3.50")
+    assert Decimal(cash["net_usd"]) == Decimal("96.50")
     history = await client.get(f"{url}/ledger", params={"kind": "settlement", "limit": 1})
     assert history.status_code == 200
     assert history.headers["X-Total-Count"] == "1"
@@ -181,7 +202,7 @@ async def test_history_and_settlement_reversal(client, test_session_factory):
     cash = (
         await client.get("/api/v1/cash/summary", params={"location_id": purchase.location_id})
     ).json()
-    assert Decimal(cash["net_usd"]) == 0
+    assert Decimal(cash["net_usd"]) == 100
     all_entries = await client.get(f"{url}/ledger", params={"limit": 1, "offset": 1})
     assert all_entries.headers["X-Total-Count"] == "3"
     assert all_entries.json()[0]["id"] == settlement["id"]
@@ -206,6 +227,7 @@ async def test_usd_settlement_requires_cash_location_and_duplicate_is_atomic(
     async with test_session_factory() as db:
         purchase = await db.get(Purchase, purchase_response.json()["id"])
         supplier_id, location_id = purchase.supplier_id, purchase.location_id
+    await seed_cash(test_session_factory, purchase)
     url = f"/api/v1/suppliers/{supplier_id}/settlements"
     payload = {"idempotency_key": "concurrent-payment", "direction": "sent", "making_usd": "10"}
     assert (await client.post(url, json=payload)).status_code == 422
@@ -213,6 +235,6 @@ async def test_usd_settlement_requires_cash_location_and_duplicate_is_atomic(
     responses = await asyncio.gather(client.post(url, json=payload), client.post(url, json=payload))
     assert sorted(response.status_code for response in responses) == [201, 409]
     async with test_session_factory() as db:
-        assert await db.scalar(select(func.count()).select_from(CashEntry)) == 1
+        assert await db.scalar(select(func.count()).select_from(CashEntry)) == 2
     summary = (await client.get("/api/v1/cash/summary", params={"location_id": location_id})).json()
-    assert Decimal(summary["net_usd"]) == -10
+    assert Decimal(summary["net_usd"]) == 90

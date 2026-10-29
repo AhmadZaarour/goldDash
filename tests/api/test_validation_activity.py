@@ -214,6 +214,7 @@ async def test_inactive_supplier_rejects_purchases_bulk_sales_and_settlements(
     assert "inactive" in response.json()["detail"]
     settlement = {
         "idempotency_key": "inactive-supplier",
+        "location_id": item_payload["location_id"],
         "direction": "sent",
         "purity_id": purity_id,
         "gold_grams": "1",

@@ -1146,3 +1146,20 @@ html {
     font-size: 16px;
   }
 }
+
+.profit-breakdown > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-block: 0.65rem;
+  border-bottom: 1px solid var(--line);
+}
+.profit-breakdown dt {
+  min-width: 0;
+}
+.profit-breakdown dd {
+  margin: 0;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}

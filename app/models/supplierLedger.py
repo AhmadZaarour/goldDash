@@ -21,6 +21,8 @@ class SupplierLedgerEntry(Base):
     purity_id: Mapped[int | None] = mapped_column(ForeignKey("goldPurities.id"))
     purchase_id: Mapped[int | None] = mapped_column(ForeignKey("purchases.id"))
     sale_id: Mapped[int | None] = mapped_column(ForeignKey("sales.id"))
+    location_id: Mapped[int | None] = mapped_column(ForeignKey("locations.id"))
+    placement: Mapped[str | None] = mapped_column(String(20))
     source_key: Mapped[str] = mapped_column(String(160), unique=True)
     reversal_of_id: Mapped[int | None] = mapped_column(
         ForeignKey("supplier_ledger_entries.id"), unique=True

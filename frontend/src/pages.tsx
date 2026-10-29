@@ -10,6 +10,7 @@ import {
   Users,
 } from "lucide-react";
 import Decimal from "decimal.js";
+import { MonthlyProfitView } from "./profit";
 import { get, request, raw, list, Operation, type Row } from "./api";
 import { useLanguage } from "./i18n";
 import { useCan, useUser } from "./session";
@@ -199,6 +200,7 @@ export function Dashboard() {
           )}
         </div>
       </div>
+      {can.admin && <MonthlyProfitView />}
       <section className="panel">
         <h2>{t("Quick actions")}</h2>
         <div className="quick-links">
@@ -1194,6 +1196,220 @@ export function Trades({ purchase = false }: { purchase?: boolean }) {
   );
 }
 
+type SupplierBalance = {
+  making_usd: string;
+  gold_grams_by_purity: Record<string, string>;
+  is_settled: boolean;
+};
+function SupplierSettlement({
+  supplierId,
+  balance,
+  done,
+}: {
+  supplierId: number;
+  balance: SupplierBalance;
+  done: () => void;
+}) {
+  const { t } = useLanguage();
+  const [values, set] = useState<Values>({
+    direction: "sent",
+    gold_grams: "0",
+    making_usd: "0",
+    placement: "factory",
+  });
+  const [closeAccount, setCloseAccount] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>();
+  const op = useRef(new Operation());
+  const available = useQuery({
+    queryKey: [
+      "list",
+      "settlement-available",
+      supplierId,
+      values.location_id,
+      values.placement,
+    ],
+    queryFn: () =>
+      get<{ cash_usd: string; gold_grams_by_purity: Record<string, string> }>(
+        `/suppliers/${supplierId}/availability?location_id=${values.location_id}&placement=${values.placement}`,
+      ),
+    enabled: !!values.location_id,
+  });
+  let valid = false,
+    full = false,
+    insufficient = false;
+  let gold = new Decimal(0),
+    usd = new Decimal(0);
+  const remainingGold = { ...balance.gold_grams_by_purity };
+  let remainingUsd = new Decimal(balance.making_usd);
+  try {
+    gold = new Decimal(String(values.gold_grams || "0"));
+    usd = new Decimal(String(values.making_usd || "0"));
+    valid =
+      gold.gte(0) &&
+      usd.gte(0) &&
+      (gold.gt(0) || usd.gt(0)) &&
+      (!gold.gt(0) || !!values.purity_id);
+    const sign = values.direction === "sent" ? -1 : 1;
+    remainingUsd = remainingUsd.plus(usd.times(sign));
+    if (values.purity_id)
+      remainingGold[String(values.purity_id)] = new Decimal(
+        remainingGold[String(values.purity_id)] || 0,
+      )
+        .plus(gold.times(sign))
+        .toString();
+    full =
+      remainingUsd.isZero() &&
+      Object.values(remainingGold).every((v) => new Decimal(v).isZero());
+    insufficient =
+      values.direction === "sent" &&
+      !!available.data &&
+      ((usd.gt(0) && usd.gt(available.data.cash_usd)) ||
+        (gold.gt(0) &&
+          gold.gt(
+            available.data.gold_grams_by_purity[String(values.purity_id)] || 0,
+          )));
+  } catch {
+    valid = false;
+  }
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(undefined);
+    try {
+      await op.current.send(
+        `/suppliers/${supplierId}/settlements`,
+        {
+          direction: values.direction,
+          location_id: Number(values.location_id),
+          placement: values.placement,
+          purity_id: values.purity_id ? Number(values.purity_id) : null,
+          gold_grams: gold.toString(),
+          making_usd: usd.toString(),
+          close_account: closeAccount,
+        },
+        "POST",
+        false,
+        true,
+      );
+      done();
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <form onSubmit={submit}>
+      <Fields
+        fields={[
+          {
+            key: "direction",
+            label: "Direction",
+            type: "select",
+            options: ["sent", "received"],
+            required: true,
+          },
+          locationField,
+          {
+            key: "placement",
+            label: "Placement",
+            type: "select",
+            options: ["factory", "showroom"],
+            required: true,
+          },
+          { ...purity, required: gold.gt(0) },
+          amount("gold_grams", "Gold (g)"),
+          amount("making_usd", "Making charge (USD)"),
+        ]}
+        values={values}
+        set={(v) => {
+          set(v);
+          setCloseAccount(false);
+        }}
+      />
+      <section className="panel">
+        <h3>{t("Settlement preview")}</h3>
+        <p>
+          {t("sent")} = {t("We pay supplier")} · {t("received")} ={" "}
+          {t("Supplier pays us")}
+        </p>
+        <p>
+          {t("Available cash")}: <bdi>${money(available.data?.cash_usd)}</bdi>
+        </p>
+        <p>
+          {t("Available bulk gold")}:{" "}
+          <bdi>
+            {available.data?.gold_grams_by_purity[String(values.purity_id)] ??
+              "0.000"}{" "}
+            g
+          </bdi>
+        </p>
+        <p>
+          {t("USD balance before / after")}:{" "}
+          <bdi>
+            ${money(balance.making_usd)} → ${remainingUsd.toFixed(2)}
+          </bdi>
+        </p>
+        {Object.entries(remainingGold).map(([id, after]) => (
+          <p key={id}>
+            <ReferenceName resource="goldpurities" value={id} />:{" "}
+            <bdi>
+              {balance.gold_grams_by_purity[id] ?? "0.000"} → {after} g
+            </bdi>
+          </p>
+        ))}
+        <small>
+          {t("Positive: we owe supplier. Negative: supplier owes us.")}
+        </small>
+        {insufficient && (
+          <p role="alert">
+            {t("Not enough cash or bulk gold at this location.")}
+          </p>
+        )}
+        <p>
+          {t(
+            full
+              ? "This payment fully settles the account."
+              : "The account will remain outstanding.",
+          )}
+        </p>
+        <label>
+          <input
+            type="checkbox"
+            checked={closeAccount}
+            disabled={!valid || !full || insufficient}
+            onChange={(e) => setCloseAccount(e.target.checked)}
+          />{" "}
+          {t("Settle account in full")}
+        </label>
+        <p>
+          <small>
+            {t(
+              "Full settlement requires zero USD and zero gold at every purity.",
+            )}
+          </small>
+        </p>
+      </section>
+      <ErrorBox error={error || available.error} />
+      <footer>
+        <button
+          disabled={
+            busy ||
+            !valid ||
+            !available.data ||
+            available.isFetching ||
+            insufficient ||
+            (closeAccount && !full)
+          }
+        >
+          {t(busy ? "Working…" : "Record settlement")}
+        </button>
+      </footer>
+    </form>
+  );
+}
+
 export function Suppliers() {
   const { t } = useLanguage();
   const can = useCan();
@@ -1209,9 +1425,7 @@ export function Suppliers() {
   const balance = useQuery({
     queryKey: ["list", "supplier-balance", selected?.id],
     queryFn: () =>
-      get<{ making_usd: string; gold_grams_by_purity: Record<string, string> }>(
-        "/suppliers/" + selected!.id + "/balance",
-      ),
+      get<SupplierBalance>("/suppliers/" + selected!.id + "/balance"),
     enabled: !!selected,
   });
   return (
@@ -1234,32 +1448,58 @@ export function Suppliers() {
           </button>
           <h2>{text(selected.name)}</h2>
           <ErrorBox error={balance.error} />
+          <p role="status">
+            <strong>
+              {t(balance.data?.is_settled ? "Fully settled" : "Outstanding")}
+            </strong>
+          </p>
           <div className="stats">
-            <div className="stat">
-              <span>{t("Making balance (USD)")}</span>
-              <strong dir="ltr">${money(balance.data?.making_usd)}</strong>
-              <small>{t("positive = owed to supplier")}</small>
-            </div>
-            <div className="stat">
-              <span>{t("Gold balances by purity")}</span>
-              {Object.entries(balance.data?.gold_grams_by_purity ?? {}).map(
-                ([id, value]) => (
-                  <strong key={id}>
-                    {t("Purity")}{" "}
-                    <ReferenceName resource="goldpurities" value={id} /> ·{" "}
-                    <bdi>{value} g</bdi>
-                  </strong>
-                ),
-              )}
-            </div>
+            {[true, false].map((owe) => (
+              <div className="stat" key={String(owe)}>
+                <h3>
+                  {t(owe ? "We owe the supplier" : "The supplier owes us")}
+                </h3>
+                <span>{t("Making charge (USD)")}</span>
+                <strong dir="ltr">
+                  $
+                  {money(
+                    balance.data &&
+                      (owe
+                        ? Decimal.max(balance.data.making_usd, 0)
+                        : Decimal.max(
+                            new Decimal(balance.data.making_usd).negated(),
+                            0,
+                          )
+                      ).toString(),
+                  )}
+                </strong>
+                <span>{t("Gold balances by purity")}</span>
+                {Object.entries(balance.data?.gold_grams_by_purity ?? {})
+                  .filter(([, value]) =>
+                    owe ? new Decimal(value).gt(0) : new Decimal(value).lt(0),
+                  )
+                  .map(([id, value]) => (
+                    <strong key={id}>
+                      <ReferenceName resource="goldpurities" value={id} /> ·{" "}
+                      <bdi>{new Decimal(value).abs().toFixed(3)} g</bdi>
+                    </strong>
+                  ))}
+              </div>
+            ))}
           </div>
-          {can.admin && (
+          <p>
+            {t(
+              "Gold and USD are separate. Different purities do not offset each other.",
+            )}
+          </p>
+          {can.admin && balance.data && (
             <button onClick={() => setAction("Settlement")}>
               {t("Record settlement")}
             </button>
           )}
           <section className="panel">
             <h2>{t("Ledger")}</h2>
+            <p>{t("Positive: we owe supplier. Negative: supplier owes us.")}</p>
             <DataList
               path={`/suppliers/${selected.id}/ledger`}
               searchable={false}
@@ -1269,7 +1509,25 @@ export function Suppliers() {
                   label: "Type",
                   render: (r) => <Badge value={r.kind} />,
                 },
-                { key: "purity_id", label: "Purity" },
+                {
+                  key: "purity_id",
+                  label: "Purity",
+                  render: (r) => (
+                    <ReferenceName
+                      resource="goldpurities"
+                      value={r.purity_id}
+                    />
+                  ),
+                },
+                { key: "purchase_id", label: "Purchase" },
+                { key: "sale_id", label: "Sale" },
+                {
+                  key: "location_id",
+                  label: "Location",
+                  render: (r) => (
+                    <ReferenceName resource="locations" value={r.location_id} />
+                  ),
+                },
                 { key: "gold_grams", label: "Gold (g)" },
                 { key: "making_usd", label: "Making charge (USD)" },
                 {
@@ -1330,58 +1588,35 @@ export function Suppliers() {
       )}
       {action && (
         <Modal title={action} close={() => setAction("")}>
-          <Form
-            fields={
-              action === "Reverse"
-                ? [
-                    {
-                      key: "reason",
-                      label: "Reason",
-                      type: "textarea",
-                      required: true,
-                      maxLength: 500,
-                    },
-                  ]
-                : [
-                    {
-                      key: "direction",
-                      label: "Direction",
-                      type: "select",
-                      options: ["sent", "received"],
-                      required: true,
-                    },
-                    { ...purity, required: false },
-                    amount("gold_grams", "Gold (g)"),
-                    amount("making_usd", "Making charge (USD)"),
-                    locationField,
-                  ]
-            }
-            initial={{ gold_grams: "0", making_usd: "0", direction: "sent" }}
-            submit={(v) =>
-              action === "Reverse"
-                ? op.current.send(
-                    `/suppliers/${selected!.id}/ledger/${entry!.id}/reverse`,
-                    { reason: v.reason },
-                    "POST",
-                    false,
-                    true,
-                  )
-                : op.current.send(
-                    `/suppliers/${selected!.id}/settlements`,
-                    {
-                      direction: v.direction,
-                      purity_id: v.purity_id ? Number(v.purity_id) : null,
-                      gold_grams: v.gold_grams,
-                      making_usd: v.making_usd,
-                      location_id: Number(v.location_id),
-                    },
-                    "POST",
-                    false,
-                    true,
-                  )
-            }
-            done={done}
-          />
+          {action === "Settlement" && balance.data ? (
+            <SupplierSettlement
+              supplierId={Number(selected!.id)}
+              balance={balance.data}
+              done={done}
+            />
+          ) : (
+            <Form
+              fields={[
+                {
+                  key: "reason",
+                  label: "Reason",
+                  type: "textarea",
+                  required: true,
+                  maxLength: 500,
+                },
+              ]}
+              submit={(v) =>
+                op.current.send(
+                  `/suppliers/${selected!.id}/ledger/${entry!.id}/reverse`,
+                  { reason: v.reason },
+                  "POST",
+                  false,
+                  true,
+                )
+              }
+              done={done}
+            />
+          )}
         </Modal>
       )}
     </>

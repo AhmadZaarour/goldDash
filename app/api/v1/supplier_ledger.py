@@ -12,9 +12,11 @@ from app.core.authorization import AdminUser
 from app.core.database import get_db
 from app.core.dependencies import CurrentUser
 from app.core.pagination import paginate
-from app.models import GoldPurity, Supplier
+from app.models import GoldPurity, Location, Supplier
 from app.models.cashLedger import CashEntry
+from app.models.inventoryBalance import InventoryBalance
 from app.models.supplierLedger import SupplierLedgerEntry
+from app.services.settlement_resources import available_cash, move_resources
 from app.services.supplier_ledger_service import post_entry, supplier_balance
 from app.services.transaction_validation import require_active_location, require_active_supplier
 
@@ -25,7 +27,9 @@ class SettlementCreate(BaseModel):
     idempotency_key: str = Field(min_length=1, max_length=80)
     direction: Literal["sent", "received"]
     location_id: int | None = Field(default=None, gt=0)
-    purity_id: int | None = None
+    purity_id: int | None = Field(default=None, gt=0)
+    placement: Literal["factory", "showroom"] = "factory"
+    close_account: bool = False
     gold_grams: Decimal = Field(default=Decimal("0"), ge=0, max_digits=14, decimal_places=3)
     making_usd: Decimal = Field(default=Decimal("0"), ge=0, max_digits=14, decimal_places=2)
 
@@ -35,8 +39,8 @@ class SettlementCreate(BaseModel):
             raise ValueError("A settlement must contain gold or USD")
         if self.gold_grams and self.purity_id is None:
             raise ValueError("Gold settlements require a purity")
-        if self.making_usd and self.location_id is None:
-            raise ValueError("USD cash settlements require a location")
+        if self.location_id is None:
+            raise ValueError("Settlements require a location for cash or gold")
         return self
 
 
@@ -44,6 +48,35 @@ class SupplierBalanceResponse(BaseModel):
     supplier_id: int
     gold_grams_by_purity: dict[int, Decimal]
     making_usd: Decimal
+    is_settled: bool
+
+
+class AvailabilityResponse(BaseModel):
+    cash_usd: Decimal
+    gold_grams_by_purity: dict[int, Decimal]
+
+
+@router.get("/{supplier_id}/availability", response_model=AvailabilityResponse)
+async def availability(
+    supplier_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    user: AdminUser,
+    location_id: int = Query(gt=0),
+    placement: Literal["factory", "showroom"] = "factory",
+):
+    if await db.get(Supplier, supplier_id) is None:
+        raise HTTPException(404, "Supplier not found")
+    if await db.get(Location, location_id) is None:
+        raise HTTPException(404, "Location not found")
+    rows = await db.execute(
+        select(InventoryBalance.purity_id, InventoryBalance.total_weight).where(
+            InventoryBalance.location_id == location_id, InventoryBalance.placement == placement
+        )
+    )
+    return {
+        "cash_usd": await available_cash(db, location_id),
+        "gold_grams_by_purity": dict(rows.all()),
+    }
 
 
 @router.get("/{supplier_id}/balance", response_model=SupplierBalanceResponse)
@@ -63,9 +96,9 @@ async def settle(
     user: AdminUser,
 ):
     try:
-        await require_active_supplier(db, supplier_id)
-        if data.location_id is not None:
-            await require_active_location(db, data.location_id)
+        # Keep location -> supplier -> stock lock order consistent with trading.
+        await require_active_location(db, data.location_id, exclusive=True)
+        await require_active_supplier(db, supplier_id, exclusive=True)
     except ValueError as error:
         raise HTTPException(409, str(error)) from error
     if data.purity_id is not None and await db.get(GoldPurity, data.purity_id) is None:
@@ -74,6 +107,30 @@ async def settle(
     key = f"settlement:{supplier_id}:{data.idempotency_key}"
     if await db.scalar(select(SupplierLedgerEntry.id).where(SupplierLedgerEntry.source_key == key)):
         raise HTTPException(409, "Settlement key already used")
+    before = await supplier_balance(db, supplier_id)
+    remaining_gold = dict(before["gold_grams_by_purity"])
+    if data.gold_grams:
+        remaining_gold[data.purity_id] = (
+            remaining_gold.get(data.purity_id, Decimal(0)) + sign * data.gold_grams
+        )
+    if data.close_account and (
+        before["making_usd"] + sign * data.making_usd != 0
+        or any(value != 0 for value in remaining_gold.values())
+    ):
+        raise HTTPException(
+            409, "Account can only be settled when USD and every purity balance are zero"
+        )
+    try:
+        await move_resources(
+            db,
+            location_id=data.location_id,
+            purity_id=data.purity_id,
+            placement=data.placement,
+            gold_delta=sign * data.gold_grams,
+            cash_delta=sign * data.making_usd,
+        )
+    except ValueError as error:
+        raise HTTPException(409, str(error)) from error
     entry = post_entry(
         db,
         supplier_id=supplier_id,
@@ -84,6 +141,8 @@ async def settle(
         kind="settlement",
         created_by=user.id,
     )
+    entry.location_id = data.location_id
+    entry.placement = data.placement if data.gold_grams else None
     try:
         if data.making_usd:
             await db.flush()
@@ -108,6 +167,8 @@ class LedgerEntryResponse(BaseModel):
     id: int
     supplier_id: int
     purity_id: int | None
+    location_id: int | None
+    placement: str | None
     purchase_id: int | None
     sale_id: int | None
     kind: str
@@ -165,12 +226,18 @@ async def reverse_settlement(
     user: AdminUser,
 ):
     original = await db.scalar(
-        select(SupplierLedgerEntry)
-        .where(SupplierLedgerEntry.id == entry_id, SupplierLedgerEntry.supplier_id == supplier_id)
-        .with_for_update()
+        select(SupplierLedgerEntry).where(
+            SupplierLedgerEntry.id == entry_id, SupplierLedgerEntry.supplier_id == supplier_id
+        )
     )
     if original is None:
         raise HTTPException(404, "Ledger entry not found")
+    if original.location_id is not None:
+        await db.scalar(
+            select(Location).where(Location.id == original.location_id).with_for_update()
+        )
+    await db.scalar(select(Supplier).where(Supplier.id == supplier_id).with_for_update())
+    # Serialize concurrent reversals and settlements on the supplier lock.
     if original.kind != "settlement":
         raise HTTPException(
             409, "Only settlements can be reversed here; invoices require a return workflow"
@@ -179,6 +246,18 @@ async def reverse_settlement(
         select(SupplierLedgerEntry.id).where(SupplierLedgerEntry.reversal_of_id == original.id)
     ):
         raise HTTPException(409, "Settlement already reversed")
+    if original.location_id is not None:
+        try:
+            await move_resources(
+                db,
+                location_id=original.location_id,
+                purity_id=original.purity_id,
+                placement=original.placement,
+                gold_delta=-original.gold_grams if original.placement else Decimal(0),
+                cash_delta=-original.making_usd,
+            )
+        except ValueError as error:
+            raise HTTPException(409, str(error)) from error
     reversal = SupplierLedgerEntry(
         supplier_id=supplier_id,
         purity_id=original.purity_id,
@@ -187,6 +266,8 @@ async def reverse_settlement(
         gold_grams=-original.gold_grams,
         making_usd=-original.making_usd,
         reversal_of_id=original.id,
+        location_id=original.location_id,
+        placement=original.placement,
         note=data.reason,
         created_by=user.id,
     )

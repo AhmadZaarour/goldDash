@@ -7,11 +7,13 @@ from app.models.location import Location
 from app.models.suppliers import Supplier
 
 
-async def require_active_location(db: AsyncSession, location_id: int) -> Location:
+async def require_active_location(
+    db: AsyncSession, location_id: int, *, exclusive: bool = False
+) -> Location:
     location = await db.scalar(
         select(Location)
         .where(Location.id == location_id)
-        .with_for_update(read=True)
+        .with_for_update(read=not exclusive)
         .execution_options(populate_existing=True)
     )
     if location is None:
@@ -21,11 +23,13 @@ async def require_active_location(db: AsyncSession, location_id: int) -> Locatio
     return location
 
 
-async def require_active_supplier(db: AsyncSession, supplier_id: int) -> Supplier:
+async def require_active_supplier(
+    db: AsyncSession, supplier_id: int, *, exclusive: bool = False
+) -> Supplier:
     supplier = await db.scalar(
         select(Supplier)
         .where(Supplier.id == supplier_id)
-        .with_for_update(read=True)
+        .with_for_update(read=not exclusive)
         .execution_options(populate_existing=True)
     )
     if supplier is None:

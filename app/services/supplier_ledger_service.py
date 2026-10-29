@@ -53,4 +53,9 @@ async def supplier_balance(db: AsyncSession, supplier_id: int):
         if purity_id is not None:
             gold[purity_id] = grams
         usd += making
-    return {"supplier_id": supplier_id, "gold_grams_by_purity": gold, "making_usd": usd}
+    return {
+        "supplier_id": supplier_id,
+        "gold_grams_by_purity": gold,
+        "making_usd": usd,
+        "is_settled": usd == 0 and all(value == 0 for value in gold.values()),
+    }

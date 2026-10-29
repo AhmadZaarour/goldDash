@@ -1,5 +1,8 @@
 from functools import lru_cache
+from typing import Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -7,6 +10,19 @@ class Settings(BaseSettings):
     app_name: str = "Gold Shop API"
     app_version: str = "0.1.0"
     debug: bool = False
+    app_environment: Literal["development", "test", "production"] = "production"
+    enable_dev_reset: bool = False
+    report_timezone: str = "Asia/Beirut"
+
+    @field_validator("report_timezone")
+    @classmethod
+    def valid_report_timezone(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError) as error:
+            raise ValueError("REPORT_TIMEZONE must be an IANA timezone") from error
+        return value
+
     item_image_dir: str = "var/item-images"
     cors_origins: list[str] = []
 

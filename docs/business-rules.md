@@ -35,24 +35,49 @@ or netting across purities. Making charges are USD. Positive balances mean the
 shop owes the supplier; negative balances mean the supplier owes the shop.
 Purchases increase obligations; bulk sales decrease them.
 
-- `GET /api/v1/suppliers/{id}/balance`: grams by purity ID and a separate USD balance.
+- `GET /api/v1/suppliers/{id}/balance`: grams by purity ID, a separate USD balance,
+  and `is_settled` (true only when USD and every purity balance are zero).
+  Settlement status is computed from the running account; new trade reopens it.
+  The frontend separates what the shop owes from what the supplier owes.
+- `GET /api/v1/suppliers/{id}/availability?location_id=...&placement=factory`:
+  admin-only recorded drawer cash and bulk gold by purity at that location/bucket.
 - `GET /api/v1/suppliers/{id}/ledger`: immutable history, including invoice links,
   author, time, corrections and source keys. Filters: `purity_id`, `kind`,
   `from_at`, `to_at`; standard `limit`/`offset` pagination applies.
 - `POST /api/v1/suppliers/{id}/settlements`: `idempotency_key`, `direction`
-  (`sent` or `received`), `gold_grams`, `purity_id`, `making_usd`, `location_id`.
-  Gold requires a purity. USD settlements are cash-only and require a drawer
-  location. Sent amounts reduce supplier obligations; received amounts increase
-  them. USD simultaneously posts to the cash drawer at that location.
+  (`sent` or `received`), `gold_grams`, `purity_id`, `making_usd`, `location_id`,
+  `placement` (`factory` by default, or `showroom`), optional `close_account`.
+  Every settlement requires a location. Gold also requires a purity.
+  Sent amounts reduce obligations and withdraw gold/cash; received amounts
+  increase obligations and add gold/cash. Sent cash cannot exceed recorded drawer
+  cash, and sent gold cannot exceed bulk stock in that exact location, placement
+  and purity. Barcoded pieces cannot fund a bulk gold settlement.
+  `close_account=true` requires the resulting USD and **all** purity balances
+  to be zero, checked against current balances in the transaction. Partial
+  payments leave the account outstanding. USD and different purities never offset
+  one another. A single payment can settle one purity plus USD; use separate
+  payments for other purities. Advance payments remain allowed when not requesting
+  full settlement, subject to available resources.
 - `POST /api/v1/suppliers/{id}/ledger/{entry_id}/reverse`: admin-only correction
   of a settlement, requiring `idempotency_key` and `reason`. It appends opposite
-  supplier and cash entries rather than editing the original. Only one reversal
+  supplier and cash entries rather than editing the original. It also reverses
+  physical gold moved by the original settlement. Reversing a received payment
+  requires enough remaining drawer cash and gold in the original bucket.
+  Only one reversal
   per settlement is allowed. Invoice entries cannot be reversed this way.
 
 Repeated settlement/reversal keys return 409; the frontend must not invent a new
 key on an uncertain retry. It can inspect ledger history to find the original.
-Settlements record gold accounting; physical gold deliveries must use inventory
-workflows. Cash posting does not execute a real-world payment.
+New gold settlements move bulk inventory atomically with the supplier ledger and
+USD cash entry. Do not record the same delivery as an additional bulk sale or
+transfer. Location locks serialize settlement payments against other cash writes;
+stock rows are also locked. Rejected payments leave all balances unchanged.
+Historical gold settlements from before this change did not move inventory;
+they are preserved without fabricated stock movements and their reversals do not
+change gold stock. Existing cash locations are backfilled from cash entries.
+Available cash is the sum of recorded drawer entries, not a reconciliation opening
+amount or counted amount; reconciliation records do not add spendable funds.
+Cash posting records a payment and does not execute a real-world payment.
 
 ## Customer cash sales and reconciliation
 
@@ -227,3 +252,55 @@ Cash summaries expose positive `expenses_usd` and `withdrawals_usd` totals, and
 subtract both from `net_usd`. Reconciliation includes them automatically, so
 opening cash plus net movement matches the expected drawer cash. These records
 log cash movements; they do not execute payments or modify supplier obligations.
+
+## Monthly dashboard profit
+
+Admin-only `GET /api/v1/insights/monthly-profit?month=YYYY-MM` optionally accepts
+`location_id`. Omission includes all locations. Calendar boundaries use
+`REPORT_TIMEZONE` (default `Asia/Beirut`); the end of the month is exclusive.
+The frontend provides month/location filters in English and Arabic. The current
+month includes transactions recorded so far. Empty months return zero totals;
+expense-only months can show a loss.
+
+Customer profit uses the **gold price recorded on each sale**, as agreed:
+
+- Gold value = the piece's purchase `gold_charge_in_grams` × the sale's
+  `gold_price_per_gram`. This values the supplier's gold obligation, including
+  any gram charge, rather than using the original purchase gold price.
+- Cost of a sold piece = that gold value + its purchase USD making charge.
+- Net sales = final collected `sell_price` amounts − customer refunds.
+  Discounts are already included in the collected amounts.
+- Returns restore the original sale's gold valuation plus making cost in the
+  **return month**. Prior months are unchanged; resale uses its own sale price.
+  A return is attributed to the original sale location for profit reporting,
+  even when the physical piece/refund is received at another location.
+- Estimated net profit = net sales − sold costs + restored costs − shop expenses.
+  Amounts are aggregated with Decimal/Numeric and rounded to cents, half up.
+
+This is a customer-sale margin at sale-time gold valuation, after shop expenses,
+not historical-cost accounting profit for the whole shop. Supplier purchases
+(pieces and bulk) and bulk sales appear separately by purity, with booked grams
+and USD making charges; they are not converted into customer profit. Their making
+charges are booked trade amounts, not cash receipts or supplier-trading profit.
+Supplier settlements, owner withdrawals, cash reconciliations and inventory
+transfers do not count as operating profit/expenses. Cash expenses recorded as
+`expense` are deducted regardless of supplier or customer activity.
+
+## Disposable development reset
+
+`GET /api/v1/development/reset-status` is admin-only and returns `enabled`.
+`POST /api/v1/development/reset` requires an admin, `APP_ENVIRONMENT=development`,
+`ENABLE_DEV_RESET=true`, and the exact JSON body
+`{"confirmation":"CLEAR DEVELOPMENT DATA"}`. Disabled resets return 404;
+unauthenticated requests return 401 and non-admins 403.
+
+Reset truncates registered business tables together, restarts their sequences,
+and preserves users, migrations and login sessions. No schema is dropped and no
+`CASCADE` is used; unexpected external foreign keys or busy table locks reject
+the transaction with 409. Photo cleanup happens only after database commit and
+only removes snapshotted generated UUID `.jpg` files in `ITEM_IMAGE_DIR`, without
+recursing into directories or deleting unrelated files. `photo_cleanup_complete`
+reports whether this cleanup succeeded. A photo cleanup warning does not undo an
+already committed business reset. The dashboard clears cached business results
+and reloads the resulting empty state. Reset should run with no other development
+activity; it does not lock out other browser sessions after completion.

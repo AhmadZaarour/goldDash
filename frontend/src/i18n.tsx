@@ -6,6 +6,76 @@ import {
   type ReactNode,
 } from "react";
 const ar: Record<string, string> = {
+  "Development tools": "أدوات التطوير",
+  "Clear business data from this disposable development database. Staff accounts and login access are preserved.":
+    "امسح بيانات العمل من قاعدة بيانات التطوير المؤقتة. تبقى حسابات الموظفين وإمكانية تسجيل الدخول محفوظة.",
+  "Clear all development data": "مسح جميع بيانات التطوير",
+  "Development data cleared. Staff accounts are preserved.":
+    "تم مسح بيانات التطوير مع الاحتفاظ بحسابات الموظفين.",
+  "Business data cleared. Some uploaded photos could not be removed; check development storage.":
+    "تم مسح بيانات العمل، لكن تعذر حذف بعض الصور المرفوعة. تحقق من تخزين التطوير.",
+  "This permanently deletes catalog, suppliers, customers, inventory, purchases, sales, returns, payments, cash history and uploaded item photos. It cannot be undone.":
+    "سيؤدي هذا إلى حذف الكتالوج والموردين والعملاء والمخزون والمشتريات والمبيعات والمرتجعات والدفعات وسجل الصندوق وصور القطع المرفوعة نهائياً. لا يمكن التراجع عن ذلك.",
+  "Use this only when nobody else is working in the development system.":
+    "استخدم هذه الأداة فقط عندما لا يعمل أحد آخر على نظام التطوير.",
+  "Type the exact phrase to confirm": "اكتب العبارة التالية كما هي للتأكيد",
+  "Confirmation phrase": "عبارة التأكيد",
+  "Delete development data": "حذف بيانات التطوير",
+  "Monthly profit": "الربح الشهري",
+  "Customer sales valued at the gold price recorded at sale, after making costs and shop expenses.":
+    "مبيعات العملاء مقيمة بسعر الذهب المسجل عند البيع، بعد تكلفة المصنعية ومصاريف المحل.",
+  Month: "الشهر",
+  "Choose a month to see profit.": "اختر شهراً لعرض الربح.",
+  "Reporting timezone": "المنطقة الزمنية للتقرير",
+  "The current month includes transactions recorded so far.":
+    "يشمل الشهر الحالي العمليات المسجلة حتى الآن.",
+  "Estimated net profit (USD)": "صافي الربح التقديري (دولار)",
+  "Gross customer profit (USD)": "إجمالي ربح مبيعات العملاء (دولار)",
+  "Shop expenses (USD)": "مصاريف المحل (دولار)",
+  "Pieces sold": "القطع المباعة",
+  "Pieces returned": "القطع المرتجعة",
+  "Customer sales collected": "المبالغ المحصلة من مبيعات العملاء",
+  "Less customer refunds": "يخصم: المبالغ المعادة للعملاء",
+  "Net customer sales": "صافي مبيعات العملاء",
+  "Gold value at sale": "قيمة الذهب عند البيع",
+  "Supplier making cost on sold pieces": "تكلفة مصنعية المورد للقطع المباعة",
+  "Less cost restored by returns": "يخصم: التكلفة المستعادة من المرتجعات",
+  "Net cost of sold pieces": "صافي تكلفة القطع المباعة",
+  "Gold value uses the purchase gold-charge grams and the sale gold price. Discounts are already included in collected prices. Returns reverse their original sale valuation in the return month.":
+    "تحتسب قيمة الذهب من غرامات استحقاق المورد عند الشراء وسعر الذهب عند البيع. الأسعار المحصلة تشمل الخصم مسبقاً. تعكس المرتجعات تقييم البيع الأصلي في شهر الإرجاع.",
+  "Supplier payments and owner withdrawals are balance movements, not profit expenses.":
+    "دفعات المورد ومسحوبات المالك حركات أرصدة وليست مصاريف ربحية.",
+  "Supplier trades — separate from profit": "تجارة الموردين — منفصلة عن الربح",
+  "Gold stays in its own purity. Supplier USD making charges below are booked amounts, not supplier profit or cash received.":
+    "يبقى الذهب مفصولاً حسب العيار. مبالغ المصنعية أدناه مبالغ مقيدة وليست ربح تجارة الموردين أو نقداً محصلاً.",
+  "Supplier purchases (pieces and bulk)": "مشتريات الموردين (قطع وذهب بالوزن)",
+  "Gold owed": "الذهب المستحق للمورد",
+  "Gold receivable": "الذهب المستحق لنا",
+  "Supplier bulk sales": "مبيعات الذهب بالوزن للموردين",
+  "No supplier purchases this month.": "لا توجد مشتريات من الموردين هذا الشهر.",
+  "No supplier bulk sales this month.":
+    "لا توجد مبيعات ذهب بالوزن للموردين هذا الشهر.",
+  "We owe the supplier": "مستحقات المورد علينا",
+  "The supplier owes us": "مستحقاتنا لدى المورد",
+  "Fully settled": "الحساب مسدد بالكامل",
+  Outstanding: "الحساب غير مسدد",
+  "Settlement preview": "معاينة التسوية",
+  "We pay supplier": "ندفع للمورد",
+  "Supplier pays us": "المورد يدفع لنا",
+  "Available cash": "النقد المتاح",
+  "Available bulk gold": "الذهب المتاح بالوزن",
+  "USD balance before / after": "رصيد الدولار قبل / بعد",
+  "Positive: we owe supplier. Negative: supplier owes us.":
+    "الموجب: مستحق للمورد علينا. السالب: مستحق لنا لدى المورد.",
+  "Not enough cash or bulk gold at this location.":
+    "النقد أو الذهب المتاح في هذا الموقع غير كافٍ.",
+  "This payment fully settles the account.": "هذه الدفعة تسدد الحساب بالكامل.",
+  "The account will remain outstanding.": "سيبقى الحساب غير مسدد بالكامل.",
+  "Settle account in full": "تسديد الحساب بالكامل",
+  "Full settlement requires zero USD and zero gold at every purity.":
+    "التسديد الكامل يتطلب تصفير الدولار والذهب لكل عيار.",
+  "Gold and USD are separate. Different purities do not offset each other.":
+    "الذهب والدولار منفصلان، ولا تتم مقاصة الأرصدة بين العيارات المختلفة.",
   Overview: "نظرة عامة",
   Inventory: "المخزون",
   Sales: "المبيعات",

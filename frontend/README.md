@@ -101,3 +101,12 @@ photos while retaining staff accounts and login access. Canceling performs no
 reset; successful reset reloads dashboard data. This control stays hidden when
 disabled and is never shown to cashiers or employees. Backend guards apply even
 to direct API calls. Keep it disabled outside disposable development systems.
+
+## Piece cost reference
+
+The item inventory table, piece detail dialog and each selected customer-sale
+line show the piece's total physical weight and calculated base cost in USD.
+Base cost values the supplier gold-charge grams at the original purchase gold
+price and includes the supplier making charge. It is a cash-equivalent pricing
+reference, separate from payment status and the monthly report's sale-time gold
+valuation. Checkout keeps the final selling price blank for explicit entry.

@@ -1,3 +1,4 @@
+from decimal import ROUND_HALF_UP, Decimal
 from typing import TYPE_CHECKING
 
 from sqlalchemy import ForeignKey, String
@@ -25,6 +26,13 @@ class InventoryItem(Base):
     )
 
     purchase_item: Mapped["PurchaseItem"] = relationship(lazy="joined")
+
+    @property
+    def base_cost_usd(self) -> Decimal:
+        line = self.purchase_item
+        return (
+            line.gold_charge_in_grams * line.gold_price_per_gram + line.making_charge
+        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     image_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
 

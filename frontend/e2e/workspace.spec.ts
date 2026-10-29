@@ -47,12 +47,23 @@ async function api(page: Page, role = "admin") {
           category_id: 1,
           purity_id: 1,
           weight: "2.500",
+          base_cost_usd: "165.00",
           status: "in_stock",
           location_id: 1,
           purchase_item_id: 1,
           image_url: null,
         },
       ];
+    else if (path === "/inventory/items/1")
+      body = {
+        id: 1,
+        barcode: "GI1234567890ABCDEF",
+        product_name: "Classic gold ring",
+        weight: "2.500",
+        base_cost_usd: "165.00",
+        status: "in_stock",
+        location_id: 1,
+      };
     else if (path === "/suppliers")
       body = [
         { id: 1, name: "Gold supplier", phone: "12345", is_active: true },
@@ -384,5 +395,51 @@ test("development reset requires exact confirmation and refreshes dashboard", as
   await page.getByRole("button", { name: "العربية", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "مسح جميع بيانات التطوير", exact: true }),
+  ).toBeVisible();
+});
+
+test("piece cost reference in inventory and customer checkout", async ({
+  page,
+}, info) => {
+  await api(page, "cashier");
+  await login(page);
+  await navigate(page, "Inventory");
+  await expect(page.getByText("$165.00", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "View", exact: true }).click();
+  let dialog = page.getByRole("dialog");
+  let reference = dialog.getByRole("region", {
+    name: "Piece cost reference",
+    exact: true,
+  });
+  await expect(reference.getByText("2.500 g", { exact: true })).toBeVisible();
+  await expect(reference.getByText("$165.00", { exact: true })).toBeVisible();
+  await dialog.getByRole("button", { name: "Close", exact: true }).click();
+  await navigate(page, "Sales");
+  await page
+    .getByRole("button", { name: "Customer sale", exact: true })
+    .click();
+  dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Location", { exact: true }).selectOption("1");
+  await dialog.getByLabel("Product", { exact: true }).selectOption("1");
+  reference = dialog.getByRole("region", {
+    name: "Piece cost reference",
+    exact: true,
+  });
+  await expect(reference.getByText("$165.00", { exact: true })).toBeVisible();
+  await expect(reference.getByText("2.500 g", { exact: true })).toBeVisible();
+  await expect(
+    dialog.getByLabel("Final price (USD)", { exact: true }),
+  ).toHaveValue("");
+  await reference.scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: `test-results/${info.project.name}-piece-base-cost.png`,
+  });
+  await dialog.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("button", { name: "العربية", exact: true }).click();
+  // Return to inventory to verify the bilingual label without submitting a sale.
+  await navigate(page, "المخزون");
+  await page.getByRole("button", { name: "عرض", exact: true }).click();
+  await expect(
+    page.getByText("التكلفة الأساسية (دولار)", { exact: true }).last(),
   ).toBeVisible();
 });

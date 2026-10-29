@@ -304,3 +304,21 @@ reports whether this cleanup succeeded. A photo cleanup warning does not undo an
 already committed business reset. The dashboard clears cached business results
 and reloads the resulting empty state. Reset should run with no other development
 activity; it does not lock out other browser sessions after completion.
+
+## Barcoded piece base cost
+
+Inventory item list/detail responses include read-only `base_cost_usd`, calculated
+from the linked purchase line as `gold_charge_in_grams × gold_price_per_gram +
+making_charge`, rounded to cents half up. This is the USD equivalent of the
+supplier obligation at the original purchase gold price, not proof that the
+supplier has been paid in USD. The piece's physical `weight` is displayed
+separately and is not substituted for supplier gold-charge grams.
+
+For example, a 10.000 g piece with a 10.200 g supplier gold charge, purchase gold
+price of $80/g and $15 making charge has a $831.00 base cost. The value is derived
+rather than stored a second time, so existing items gain it without a migration.
+It remains tied to the original purchase across transfers, sales, returns and
+resale. Inventory lists/details and each selected customer-sale line show weight
+and base cost for pricing reference. The final selling price remains explicitly
+entered by the cashier. Monthly profit continues to use the sale-time gold
+valuation selected for that report; this purchase-cost label does not change it.

@@ -1163,3 +1163,28 @@ html {
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
 }
+
+.piece-cost-label {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin-block: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-inline-start: 4px solid var(--gold);
+  border-radius: 10px;
+  background: #f7f8f5;
+}
+.piece-cost-label span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.piece-cost-label strong {
+  display: block;
+  margin-top: 0.4rem;
+  overflow-wrap: anywhere;
+}
+.piece-cost-label small {
+  grid-column: 1 / -1;
+}

@@ -10,8 +10,8 @@ class Settings(BaseSettings):
     app_name: str = "Gold Shop API"
     app_version: str = "0.1.0"
     debug: bool = False
-    app_environment: Literal["development", "test", "production"] = "production"
-    enable_dev_reset: bool = False
+    app_environment: Literal["development", "test", "production"] = "development"
+    enable_dev_reset: bool = True
     report_timezone: str = "Asia/Beirut"
 
     @field_validator("report_timezone")

@@ -6,6 +6,21 @@ import {
   type ReactNode,
 } from "react";
 const ar: Record<string, string> = {
+  "Development tools": "أدوات التطوير",
+  "Clear business data from this disposable development database. Staff accounts and login access are preserved.":
+    "امسح بيانات العمل من قاعدة بيانات التطوير المؤقتة. تبقى حسابات الموظفين وإمكانية تسجيل الدخول محفوظة.",
+  "Clear all development data": "مسح جميع بيانات التطوير",
+  "Development data cleared. Staff accounts are preserved.":
+    "تم مسح بيانات التطوير مع الاحتفاظ بحسابات الموظفين.",
+  "Business data cleared. Some uploaded photos could not be removed; check development storage.":
+    "تم مسح بيانات العمل، لكن تعذر حذف بعض الصور المرفوعة. تحقق من تخزين التطوير.",
+  "This permanently deletes catalog, suppliers, customers, inventory, purchases, sales, returns, payments, cash history and uploaded item photos. It cannot be undone.":
+    "سيؤدي هذا إلى حذف الكتالوج والموردين والعملاء والمخزون والمشتريات والمبيعات والمرتجعات والدفعات وسجل الصندوق وصور القطع المرفوعة نهائياً. لا يمكن التراجع عن ذلك.",
+  "Use this only when nobody else is working in the development system.":
+    "استخدم هذه الأداة فقط عندما لا يعمل أحد آخر على نظام التطوير.",
+  "Type the exact phrase to confirm": "اكتب العبارة التالية كما هي للتأكيد",
+  "Confirmation phrase": "عبارة التأكيد",
+  "Delete development data": "حذف بيانات التطوير",
   "Monthly profit": "الربح الشهري",
   "Customer sales valued at the gold price recorded at sale, after making costs and shop expenses.":
     "مبيعات العملاء مقيمة بسعر الذهب المسجل عند البيع، بعد تكلفة المصنعية ومصاريف المحل.",

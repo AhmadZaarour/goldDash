@@ -9,6 +9,7 @@ async function api(page: Page, role = "admin") {
     if (path === "/auth/login" || path === "/auth/refresh")
       body = { access_token: "test-token", refresh_token: "test-refresh" };
     else if (path === "/auth/me") body = user;
+    else if (path === "/development/reset-status") body = { enabled: false };
     else if (path === "/insights/monthly-profit")
       body = {
         month: url.searchParams.get("month"),
@@ -157,6 +158,12 @@ test("cashier navigation does not expose admin or inventory write controls", asy
   await expect(
     page.getByRole("heading", { name: "Monthly profit", exact: true }),
   ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", {
+      name: "Clear all development data",
+      exact: true,
+    }),
+  ).toHaveCount(0);
   await navigate(page, "Inventory");
   await expect(
     page.getByRole("button", { name: "Bulk transfer", exact: true }),
@@ -278,11 +285,9 @@ test("monthly profit filters, breakdown and Arabic layout", async ({
     r.url().includes("/insights/monthly-profit?month=2026-04&location_id=1"),
   );
   // The dashboard's cash selector and the report selector intentionally use separate locations.
-  const panel = page
-    .locator("section.panel")
-    .filter({
-      has: page.getByRole("heading", { name: "Monthly profit", exact: true }),
-    });
+  const panel = page.locator("section.panel").filter({
+    has: page.getByRole("heading", { name: "Monthly profit", exact: true }),
+  });
   await panel.getByLabel("Location", { exact: true }).selectOption("1");
   await next;
   await expect(
@@ -302,4 +307,82 @@ test("monthly profit filters, breakdown and Arabic layout", async ({
     viewport: visualViewport?.width ?? innerWidth,
   }));
   expect(layout.width).toBeLessThanOrEqual(layout.viewport + 1);
+});
+
+test("development reset requires exact confirmation and refreshes dashboard", async ({
+  page,
+}) => {
+  await api(page);
+  let cleared = false,
+    resetCalls = 0;
+  await page.route("**/api/v1/development/**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("reset-status"))
+      await route.fulfill({ json: { enabled: true } });
+    else {
+      expect(route.request().method()).toBe("POST");
+      expect(route.request().postDataJSON()).toEqual({
+        confirmation: "CLEAR DEVELOPMENT DATA",
+      });
+      cleared = true;
+      resetCalls++;
+      await route.fulfill({
+        json: {
+          cleared: true,
+          photos_removed: 0,
+          photo_cleanup_complete: true,
+        },
+      });
+    }
+  });
+  await page.route("**/api/v1/inventory/items?**", async (route) => {
+    if (cleared)
+      await route.fulfill({ json: [], headers: { "X-Total-Count": "0" } });
+    else await route.fallback();
+  });
+  await login(page);
+  await page
+    .getByRole("button", { name: "Clear all development data", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog");
+  await expect(
+    dialog.getByRole("button", {
+      name: "Delete development data",
+      exact: true,
+    }),
+  ).toBeDisabled();
+  await dialog
+    .getByLabel("Confirmation phrase", { exact: true })
+    .fill("clear development data");
+  await expect(
+    dialog.getByRole("button", {
+      name: "Delete development data",
+      exact: true,
+    }),
+  ).toBeDisabled();
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  expect(resetCalls).toBe(0);
+  await page
+    .getByRole("button", { name: "Clear all development data", exact: true })
+    .click();
+  await dialog
+    .getByLabel("Confirmation phrase", { exact: true })
+    .fill("CLEAR DEVELOPMENT DATA");
+  await dialog
+    .getByRole("button", { name: "Delete development data", exact: true })
+    .click();
+  await expect(page.getByRole("status")).toHaveText(
+    "Development data cleared. Staff accounts are preserved.",
+  );
+  await expect(
+    page
+      .locator(".stat")
+      .filter({ has: page.getByText("Available pieces", { exact: true }) })
+      .locator("strong"),
+  ).toHaveText("0");
+  expect(resetCalls).toBe(1);
+  await page.getByRole("button", { name: "العربية", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "مسح جميع بيانات التطوير", exact: true }),
+  ).toBeVisible();
 });

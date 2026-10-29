@@ -90,3 +90,14 @@ Authorization and Idempotency-Key headers, and allow photo requests up to 11 MB
 routing shape; add your actual TLS/domain configuration. Browser support targets
 current Chrome, Edge, Firefox and Safari. Chromium was exercised in this environment;
 physical camera devices and Safari require device acceptance testing.
+
+## Development reset button
+
+Admins see **Development tools → Clear all development data** at the bottom of
+Overview only when the backend explicitly enables the disposable development
+reset. Set `APP_ENVIRONMENT=development` and `ENABLE_DEV_RESET=true` in the backend
+and restart it. The typed confirmation clears business records and generated
+photos while retaining staff accounts and login access. Canceling performs no
+reset; successful reset reloads dashboard data. This control stays hidden when
+disabled and is never shown to cashiers or employees. Backend guards apply even
+to direct API calls. Keep it disabled outside disposable development systems.

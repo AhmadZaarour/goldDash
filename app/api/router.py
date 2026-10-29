@@ -4,6 +4,7 @@ from app.api.v1.auth import router as auth_router
 from app.api.v1.cash import router as cash_router
 from app.api.v1.categories import router as categories_router
 from app.api.v1.customers import router as customers_router
+from app.api.v1.development import router as development_router
 from app.api.v1.goldPurities import router as gold_purities_router
 from app.api.v1.insights import router as insights_router
 from app.api.v1.inventory import router as inventory_router
@@ -57,3 +58,5 @@ api_router.include_router(cash_router, dependencies=[Depends(get_current_user)])
 api_router.include_router(item_photos_router, dependencies=[Depends(get_current_user)])
 
 api_router.include_router(insights_router, dependencies=[Depends(get_current_user)])
+
+api_router.include_router(development_router, dependencies=[Depends(get_current_user)])

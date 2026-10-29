@@ -10,6 +10,7 @@ import {
   Users,
 } from "lucide-react";
 import Decimal from "decimal.js";
+import { DevelopmentReset } from "./development";
 import { MonthlyProfitView } from "./profit";
 import { get, request, raw, list, Operation, type Row } from "./api";
 import { useLanguage } from "./i18n";
@@ -226,6 +227,7 @@ export function Dashboard() {
           ))}
         </div>
       </section>
+      {can.admin && <DevelopmentReset />}
       <ErrorBox error={inv.error || suppliers.error || cash.error} />
     </>
   );

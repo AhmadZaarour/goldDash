@@ -285,3 +285,22 @@ charges are booked trade amounts, not cash receipts or supplier-trading profit.
 Supplier settlements, owner withdrawals, cash reconciliations and inventory
 transfers do not count as operating profit/expenses. Cash expenses recorded as
 `expense` are deducted regardless of supplier or customer activity.
+
+## Disposable development reset
+
+`GET /api/v1/development/reset-status` is admin-only and returns `enabled`.
+`POST /api/v1/development/reset` requires an admin, `APP_ENVIRONMENT=development`,
+`ENABLE_DEV_RESET=true`, and the exact JSON body
+`{"confirmation":"CLEAR DEVELOPMENT DATA"}`. Disabled resets return 404;
+unauthenticated requests return 401 and non-admins 403.
+
+Reset truncates registered business tables together, restarts their sequences,
+and preserves users, migrations and login sessions. No schema is dropped and no
+`CASCADE` is used; unexpected external foreign keys or busy table locks reject
+the transaction with 409. Photo cleanup happens only after database commit and
+only removes snapshotted generated UUID `.jpg` files in `ITEM_IMAGE_DIR`, without
+recursing into directories or deleting unrelated files. `photo_cleanup_complete`
+reports whether this cleanup succeeded. A photo cleanup warning does not undo an
+already committed business reset. The dashboard clears cached business results
+and reloads the resulting empty state. Reset should run with no other development
+activity; it does not lock out other browser sessions after completion.

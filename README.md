@@ -69,3 +69,26 @@ The bilingual English/Arabic React frontend is in [frontend](frontend/README.md)
 Start the API, then run `npm ci && npm run dev` in `frontend/`. Printer integration
 remains deferred. Phone photos use authenticated local storage; mount and back up
 `ITEM_IMAGE_DIR` before deployment.
+
+## Development data reset
+
+To show the admin-only **Clear all development data** button at the bottom of
+Overview, explicitly configure a disposable development installation and restart
+the API:
+
+```dotenv
+APP_ENVIRONMENT=development
+ENABLE_DEV_RESET=true
+```
+
+The button requires typing `CLEAR DEVELOPMENT DATA`. It deletes business records
+(catalog, suppliers/customers, inventory, trades, settlements, cash history and
+retry receipts) and generated uploaded item photos. It preserves all staff
+accounts, login sessions and the migrated database schema. Stop other development
+activity before resetting. Unrelated files in photo storage are preserved; a
+cleanup warning is shown if any generated photos cannot be removed.
+
+Reset is disabled by default and remains disabled when `APP_ENVIRONMENT` is
+`production` or `test`, even if `ENABLE_DEV_RESET=true`. Do not enable it against
+business data. This feature does not reset PostgreSQL/Redis services or delete
+`.env` settings. No data is cleared merely by enabling or displaying the button.

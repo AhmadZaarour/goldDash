@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import field_validator
@@ -9,6 +10,8 @@ class Settings(BaseSettings):
     app_name: str = "Gold Shop API"
     app_version: str = "0.1.0"
     debug: bool = False
+    app_environment: Literal["development", "test", "production"] = "production"
+    enable_dev_reset: bool = False
     report_timezone: str = "Asia/Beirut"
 
     @field_validator("report_timezone")

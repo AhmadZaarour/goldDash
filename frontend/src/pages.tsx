@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import Decimal from "decimal.js";
 import { DevelopmentReset } from "./development";
+import { ItemCostLabel, SaleItemCost } from "./item-cost";
 import { MonthlyProfitView } from "./profit";
 import { get, request, raw, list, Operation, type Row } from "./api";
 import { useLanguage } from "./i18n";
@@ -520,6 +521,11 @@ export function Inventory() {
               { key: "product_name", label: "Product" },
               { key: "weight", label: "Weight (g)" },
               {
+                key: "base_cost_usd",
+                label: "Base cost (USD)",
+                render: (r) => <bdi>${money(r.base_cost_usd)}</bdi>,
+              },
+              {
                 key: "status",
                 label: "Status",
                 render: (r) => <Badge value={r.status} />,
@@ -598,12 +604,12 @@ export function Inventory() {
       {item && !action && (
         <Modal title="Piece details" close={() => setItem(undefined)}>
           <Photo url={item.image_url} />
+          <ItemCostLabel item={item} />
           <div className="detail-grid">
             {[
               ["Barcode", "barcode"],
               ["Product", "product_name"],
               ["SKU", "sku"],
-              ["Weight (g)", "weight"],
               ["Purity", "purity_id"],
               ["Location", "location_id"],
               ["Status", "status"],
@@ -930,6 +936,9 @@ function TradeForm({
             values={v}
             set={(next) => setLines(lines.map((x, j) => (j === i ? next : x)))}
           />
+          {kind === "customerSale" && v.inventory_item_id && (
+            <SaleItemCost itemId={String(v.inventory_item_id)} />
+          )}
         </section>
       ))}
       {!bulk && (

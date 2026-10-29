@@ -50,6 +50,7 @@ class InventoryItemResponse(BaseModel):
     purity_id: int = Field(validation_alias=AliasPath("purchase_item", "product", "purity_id"))
     category_id: int = Field(validation_alias=AliasPath("purchase_item", "product", "category_id"))
     weight: Decimal = Field(validation_alias=AliasPath("purchase_item", "weight"))
+    base_cost_usd: Decimal
     image_url: str | None = None
     model_config = ConfigDict(from_attributes=True)
 

@@ -6,6 +6,11 @@ import {
   type ReactNode,
 } from "react";
 const ar: Record<string, string> = {
+  "Piece cost reference": "مرجع تكلفة القطعة",
+  "Total weight (g)": "الوزن الإجمالي (غ)",
+  "Base cost (USD)": "التكلفة الأساسية (دولار)",
+  "Cash equivalent at purchase gold price, including gold charge and supplier making charge.":
+    "القيمة النقدية بسعر الذهب عند الشراء، شاملة استحقاق الذهب ومصنعية المورد.",
   "Development tools": "أدوات التطوير",
   "Clear business data from this disposable development database. Staff accounts and login access are preserved.":
     "امسح بيانات العمل من قاعدة بيانات التطوير المؤقتة. تبقى حسابات الموظفين وإمكانية تسجيل الدخول محفوظة.",

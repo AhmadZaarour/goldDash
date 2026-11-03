@@ -663,3 +663,47 @@ test("supplier bulk sale previews its live rate and keeps making charges editabl
     dialog.getByLabel("Making charge (USD)", { exact: true }),
   ).toHaveValue("9.25");
 });
+
+test("purchase details distinguish 5g physical weight from 4.397g 24K charge", async ({
+  page,
+}) => {
+  await api(page);
+  await page.route("**/api/v1/purchases?**", (route) =>
+    route.fulfill({
+      json: [
+        {
+          id: 9,
+          invoice_number: "MIXED",
+          location_id: 1,
+          created_at: new Date().toISOString(),
+        },
+      ],
+      headers: { "X-Total-Count": "1" },
+    }),
+  );
+  await page.route("**/api/v1/purchases/items/9", (route) =>
+    route.fulfill({
+      json: [
+        {
+          id: 31,
+          product_id: 1,
+          weight: "5.000",
+          gold_charge_in_grams: "5.250",
+          gold_charge_24k: "4.397",
+          making_charge: "0.00",
+        },
+      ],
+    }),
+  );
+  await login(page);
+  await navigate(page, "Purchases");
+  await page.getByRole("button", { name: "View", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByText("Weight (g)", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("5.000", { exact: true })).toBeVisible();
+  await expect(
+    dialog.getByText("Gold charge (24K equivalent g)", { exact: true }),
+  ).toBeVisible();
+  await expect(dialog.getByText("4.397", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("5.250", { exact: true })).toHaveCount(0);
+});

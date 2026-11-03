@@ -104,7 +104,9 @@ def invoice(s):
     }
 
 
-async def test_mixed_invoice_allocates_cost_and_snapshots_debt(client, test_session_factory):
+async def test_mixed_invoice_keeps_physical_weights_and_snapshots_24k_charges(
+    client, test_session_factory
+):
     s = await setup_shop(client, test_session_factory)
     body = invoice(s)
     response = await client.post("/api/v1/purchases/item", json=body)
@@ -112,9 +114,16 @@ async def test_mixed_invoice_allocates_cost_and_snapshots_debt(client, test_sess
     assert Decimal(response.json()["gold_debt_24k"]) == Decimal("16.332")
     lines = (await client.get(f"/api/v1/purchases/items/{response.json()['id']}")).json()
     assert [Decimal(line["gold_charge_in_grams"]) for line in lines] == [
-        Decimal("9.231"),
-        Decimal("10.769"),
+        Decimal("10"),
+        Decimal("10"),
     ]
+    assert [Decimal(line["gold_charge_24k"]) for line in lines] == [
+        Decimal("7.538"),
+        Decimal("8.794"),
+    ]
+    assert sum(Decimal(line["gold_charge_24k"]) for line in lines) == Decimal(
+        response.json()["gold_debt_24k"]
+    )
     balance = (await client.get(f"/api/v1/suppliers/{s['supplier']}/balance")).json()
     assert Decimal(balance["gold_24k"]) == Decimal("16.332")
     assert Decimal(balance["making_usd"]) == 10

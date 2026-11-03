@@ -143,3 +143,9 @@ prices stay manual. Bulk purchase cost per gram still means actual payment divid
 by weight; its separate gold-rate snapshot is the market reference. Every new
 trade requires a fresh quote, while completed records and returns retain their
 original prices. Trade details display recorded per-gram prices.
+
+Purchase details and piece cost references label 24K-equivalent gold charges
+separately from physical weight. Mixed-purity invoices no longer redistribute
+physical grams across pieces. The migration restores the explicit 24K display for
+prior invoices with recorded conversion factors while preserving their original
+financial fields.

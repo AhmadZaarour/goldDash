@@ -103,6 +103,7 @@ class PurchaseResponse(BaseModel):
 
 
 class PurchaseItemResponse(BaseModel):
+    gold_charge_24k: Decimal | None = None
     model_config = ConfigDict(from_attributes=True)
 
     id: int

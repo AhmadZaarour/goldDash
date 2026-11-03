@@ -1278,12 +1278,18 @@ function TradeDetail({
                 .filter(
                   ([key, value]) =>
                     value != null &&
+                    !(
+                      purchase &&
+                      key === "gold_charge_in_grams" &&
+                      row.gold_charge_24k != null
+                    ) &&
                     [
                       "barcode",
                       "product_id",
                       "inventory_item_id",
                       "weight",
                       "gold_charge_in_grams",
+                      "gold_charge_24k",
                       "gold_price_per_gram",
                       "cost_per_gram",
                       "making_charge",
@@ -1302,6 +1308,7 @@ function TradeDetail({
                             inventory_item_id: "Items",
                             weight: "Weight (g)",
                             gold_charge_in_grams: "Gold charge (g)",
+                            gold_charge_24k: "Gold charge (24K equivalent g)",
                             gold_price_per_gram: "Gold price / gram",
                             cost_per_gram: "Cost / gram",
                             making_charge: "Making charge (USD)",

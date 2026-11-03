@@ -44,6 +44,9 @@ class InventoryItemImageUpdate(BaseModel):
 
 
 class InventoryItemResponse(BaseModel):
+    gold_charge_24k: Decimal | None = Field(
+        default=None, validation_alias=AliasPath("purchase_item", "gold_charge_24k")
+    )
     product_id: int = Field(validation_alias=AliasPath("purchase_item", "product_id"))
     product_name: str = Field(validation_alias=AliasPath("purchase_item", "product", "name"))
     sku: str = Field(validation_alias=AliasPath("purchase_item", "product", "sku"))

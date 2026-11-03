@@ -67,12 +67,23 @@ The invoice posts one gold debt plus its total USD making charges. Gold and USD
 remain separate obligations. Positive balances mean the shop owes the supplier;
 negative balances mean the supplier owes the shop.
 
-The invoice's total physical gold charge is allocated among pieces in proportion
-to fine-gold content for costing. Largest-remainder allocation at 0.001g keeps
-the allocations nonnegative and their sum exact. Allocations are stored as each
-piece's `gold_charge_in_grams` for accounting. The pricing-reference base cost
-retains the test branch's formula: physical weight × (purchase gram price +
-making charge). Historical purchase-line values remain unchanged.
+Each new piece keeps its own physical weight as `gold_charge_in_grams`; physical
+weights at different purities are never redistributed between pieces. The separate
+`gold_charge_24k` field records its converted debt contribution. Largest-remainder
+allocation applies only to the final 0.001g invoice rounding in this common 24K
+unit, so per-piece 24K charges add exactly to the invoice's booked 24K debt.
+For example, 5g of 21K plus 2.5g of 18K records 4.397g and 1.884g of 24K-equivalent
+charge, totaling 6.281g. Physical weights remain 5g and 2.5g; the 21K piece must
+never be relabeled as a 5.25g physical charge.
+
+The pricing-reference base cost retains the existing formula: physical weight ×
+(purchase gram price + making charge). No 24K-equivalent grams are multiplied by
+a physical 18K/21K gram price. New sale-time reporting similarly uses the recorded
+physical charge and matching sale gram rate. Historical prices, original charge
+fields, cash and ledger entries remain unchanged. The migration adds explicit 24K
+charges to prior invoices only where complete saved line conversion factors and
+an invoice debt snapshot exist, using those saved values rather than current
+catalog settings. Earlier history without enough evidence keeps a null 24K charge.
 Each new line stores the valuation factor used, and the invoice records both
 its physical total and its standardized gold debt.
 

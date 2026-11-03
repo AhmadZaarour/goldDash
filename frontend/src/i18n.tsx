@@ -6,6 +6,7 @@ import {
   type ReactNode,
 } from "react";
 const ar: Record<string, string> = {
+  "Gold charge (24K equivalent g)": "استحقاق الذهب (غ مكافئ لعيار ٢٤)",
   "Gold prices are calculated from the live quote when the trade is confirmed.":
     "تُحسب أسعار الذهب من السعر المباشر عند تأكيد العملية.",
   "Enter 0 USD for opening stock. No cash payment or supplier debt is recorded.":

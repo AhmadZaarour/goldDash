@@ -125,3 +125,9 @@ Automatic per-gram market rates now cover customer sales, customer bulk purchase
 Actual payment/final selling totals stay manual. All new trades require a fresh
 shared quote; completed records retain their prices. Run `uv run alembic upgrade head`
 to add the bulk market-rate snapshots and sale quote timestamps before starting.
+
+Item purchase details now distinguish physical grams from `gold_charge_24k`.
+The mixed-purity physical-total redistribution has been removed: a 5g 21K piece
+has a 4.397g 24K-equivalent charge, not a 5.25g physical charge. Apply migrations
+to backfill explicit 24K charges from complete saved invoice/factor snapshots;
+original financial fields and ledger entries are preserved.

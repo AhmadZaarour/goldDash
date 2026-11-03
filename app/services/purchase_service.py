@@ -74,7 +74,9 @@ async def create_item_purchase(
     try:
         await db.flush()
 
-        allocations = allocate_charge(physical_total, fine)
+        # Allocate only the final 0.001g invoice rounding in a common 24K unit.
+        # Never distribute mixed-purity physical grams across pieces.
+        allocations = allocate_charge(debt, fine)
         for index, line in enumerate(purchase_data.items):
             charge = allocations[index]
             purchase_item = PurchaseItem(
@@ -86,7 +88,8 @@ async def create_item_purchase(
                 gold_price_per_gram=price_per_gram(
                     quote, purities[products[line.product_id].purity_id]
                 ),
-                gold_charge_in_grams=charge,
+                gold_charge_in_grams=line.weight,
+                gold_charge_24k=charge,
                 making_charge=line.making_charge,
             )
             db.add(purchase_item)
@@ -246,9 +249,9 @@ async def get_purchase_items(
     purchase_id: int,
 ) -> list[PurchaseItem]:
     result = await db.scalars(
-        select(PurchaseItem).where(
-            PurchaseItem.purchase_id == purchase_id,
-        )
+        select(PurchaseItem)
+        .where(PurchaseItem.purchase_id == purchase_id)
+        .order_by(PurchaseItem.id)
     )
     return list(result.all())
 

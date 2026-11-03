@@ -20,7 +20,6 @@ def items_payload(s_id, p_id) -> dict[str, str]:
         "product_id": p_id,
         "weight": 2.1,
         "gold_price_per_gram": 100.5,
-        "gold_charge_in_grams": 201.5,
         "making_charge": 8.6,
     }
 
@@ -33,6 +32,7 @@ def purchase_payload(created_by: int, location_id: int, s_id: int, p_id: int) ->
         "notes": f"notes-{suffix}",
         "created_by": created_by,
         "location_id": location_id,
+        "total_gold_charge_grams": "2.1",
         "items": [items_payload(s_id, p_id)],
     }
 

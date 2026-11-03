@@ -34,7 +34,7 @@ async def test_gold_purity_partial_updates_and_input_bounds(client):
     assert updated.status_code == 200
     assert updated.json()["name"] == "Fine gold"
     assert updated.json()["karat"] == 24
-    assert updated.json()["purity"] == 99.9
+    assert Decimal(updated.json()["purity"]) == Decimal("99.9")
     for invalid in [
         {"name": None},
         {"name": "x" * 51},

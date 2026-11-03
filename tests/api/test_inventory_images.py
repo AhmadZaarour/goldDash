@@ -20,6 +20,7 @@ async def test_item_image_creation_update_and_clear(client, test_session_factory
             "supplier_id": invoice.supplier_id,
             "created_by": invoice.created_by,
             "location_id": invoice.location_id,
+            "total_gold_charge_grams": "1",
             "items": [
                 {
                     "supplier_id": invoice.supplier_id,

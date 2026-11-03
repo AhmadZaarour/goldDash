@@ -9,6 +9,15 @@ async function api(page: Page, role = "admin") {
     if (path === "/auth/login" || path === "/auth/refresh")
       body = { access_token: "test-token", refresh_token: "test-refresh" };
     else if (path === "/auth/me") body = user;
+    else if (path === "/gold-price")
+      body = {
+        ounce_usd: "3110",
+        gram_24k_usd: "100",
+        gram_21k_usd: "87.939698",
+        gram_18k_usd: "75.376884",
+        fetched_at: new Date().toISOString(),
+        stale: false,
+      };
     else if (path === "/development/reset-status") body = { enabled: false };
     else if (path === "/insights/monthly-profit")
       body = {
@@ -82,7 +91,15 @@ async function api(page: Page, role = "admin") {
         },
       ];
     else if (path === "/goldpurities")
-      body = [{ id: 1, name: "22K", karat: 22, purity: 91.6 }];
+      body = [
+        {
+          id: 1,
+          name: "22K",
+          karat: 24,
+          purity: "99.5",
+          repayment_factor: "1",
+        },
+      ];
     else if (path === "/categories") body = [{ id: 1, name: "Rings" }];
     else if (path === "/cash/summary")
       body = {
@@ -200,6 +217,7 @@ test("supplier balances, shortage warning and full settlement", async ({
   const balance = () => ({
     supplier_id: 1,
     making_usd: settled ? "0.00" : "30.00",
+    gold_24k: settled ? "0.000" : "2.000",
     gold_grams_by_purity: { "1": settled ? "0.000" : "2.000" },
     is_settled: settled,
   });
@@ -230,8 +248,8 @@ test("supplier balances, shortage warning and full settlement", async ({
     .click();
   const dialog = page.getByRole("dialog");
   await dialog.getByLabel("Location", { exact: true }).selectOption("1");
-  await dialog.getByLabel("Purity", { exact: true }).selectOption("1");
-  await dialog.getByLabel("Gold (g)", { exact: true }).fill("1");
+  await dialog.getByLabel("Payment purity", { exact: true }).selectOption("1");
+  await dialog.getByLabel("Physical gold (g)", { exact: true }).fill("1");
   await dialog.getByLabel("Making charge (USD)", { exact: true }).fill("5");
   await expect(
     dialog.getByLabel("Settle account in full", { exact: true }),
@@ -239,7 +257,7 @@ test("supplier balances, shortage warning and full settlement", async ({
   await expect(
     dialog.getByRole("button", { name: "Record settlement", exact: true }),
   ).toBeEnabled();
-  await dialog.getByLabel("Gold (g)", { exact: true }).fill("2");
+  await dialog.getByLabel("Physical gold (g)", { exact: true }).fill("2");
   await dialog.getByLabel("Making charge (USD)", { exact: true }).fill("30");
   await expect(dialog.getByRole("alert")).toHaveText(
     "Not enough cash or bulk gold at this location.",
@@ -382,9 +400,9 @@ test("development reset requires exact confirmation and refreshes dashboard", as
   await dialog
     .getByRole("button", { name: "Delete development data", exact: true })
     .click();
-  await expect(page.getByRole("status")).toHaveText(
-    "Development data cleared. Staff accounts are preserved.",
-  );
+  await expect(
+    page.getByRole("status").filter({ hasText: "Development data cleared." }),
+  ).toHaveText("Development data cleared. Staff accounts are preserved.");
   await expect(
     page
       .locator(".stat")
@@ -442,4 +460,98 @@ test("piece cost reference in inventory and customer checkout", async ({
   await expect(
     page.getByText("التكلفة الأساسية (دولار)", { exact: true }).last(),
   ).toBeVisible();
+});
+
+test("live gold dashboard and cashier walk-in bulk purchase", async ({
+  page,
+}) => {
+  await api(page, "cashier");
+  await page.route("**/api/v1/products?**", (route) =>
+    route.fulfill({
+      json: [
+        {
+          id: 2,
+          name: "Bulk gold",
+          sku: "BULK",
+          inventory_type: "bulk",
+          purity_id: 1,
+        },
+      ],
+      headers: { "X-Total-Count": "1" },
+    }),
+  );
+  let submitted: Record<string, unknown> | undefined;
+  await page.route("**/api/v1/purchases/customer-stock", async (route) => {
+    submitted = route.request().postDataJSON();
+    expect(route.request().headers()["idempotency-key"]).toBeTruthy();
+    await route.fulfill({
+      status: 201,
+      json: { id: 7, source: "customer", paid_usd: "250", location_id: 1 },
+    });
+  });
+  await login(page);
+  const gold = page.locator("section.panel").filter({
+    has: page.getByRole("heading", { name: "Live gold price", exact: true }),
+  });
+  await expect(gold.getByText("$3110.00", { exact: true })).toBeVisible();
+  await expect(gold.getByText("$100.00", { exact: true })).toBeVisible();
+  await navigate(page, "Purchases");
+  await page
+    .getByRole("button", { name: "Customer bulk purchase", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByLabel("Supplier", { exact: true })).toHaveCount(0);
+  await expect(dialog.getByLabel("Customer", { exact: true })).toHaveCount(0);
+  await dialog.getByLabel("Location", { exact: true }).selectOption("1");
+  await dialog.getByLabel("Product", { exact: true }).selectOption("2");
+  await dialog.getByLabel("Placement", { exact: true }).selectOption("factory");
+  await dialog.getByLabel("Weight (g)", { exact: true }).fill("5");
+  await dialog.getByLabel("Total paid (USD)", { exact: true }).fill("250");
+  await dialog.getByRole("button", { name: "Confirm", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(submitted).toMatchObject({
+    location_id: 1,
+    product_id: 2,
+    weight: "5",
+    paid_usd: "250",
+    placement: "factory",
+  });
+  expect(submitted).not.toHaveProperty("supplier_id");
+  expect(submitted).not.toHaveProperty("customer_id");
+});
+
+test("item purchase uses one invoice gold charge and offers camera upload", async ({
+  page,
+}) => {
+  await api(page);
+  let submitted: Record<string, unknown> | undefined;
+  await page.route("**/api/v1/purchases/item", async (route) => {
+    submitted = route.request().postDataJSON();
+    await route.fulfill({ status: 201, json: { id: 8, location_id: 1 } });
+  });
+  await login(page);
+  await navigate(page, "Purchases");
+  await page
+    .getByRole("button", { name: "Item purchase", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog");
+  await expect(
+    dialog.getByLabel("Gold charge (g)", { exact: true }),
+  ).toHaveCount(0);
+  await expect(dialog.getByLabel("Take / choose photo")).toHaveAttribute(
+    "capture",
+    "environment",
+  );
+  await dialog.getByLabel("Location", { exact: true }).selectOption("1");
+  await dialog.getByLabel("Supplier", { exact: true }).selectOption("1");
+  await dialog.getByLabel("Product", { exact: true }).selectOption("1");
+  await dialog.getByLabel("Weight (g)", { exact: true }).fill("2.5");
+  await dialog.getByLabel("Gold price / gram", { exact: true }).fill("100");
+  await dialog.getByLabel("Making charge (USD)", { exact: true }).fill("5");
+  await dialog.getByRole("button", { name: "Confirm", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(submitted?.total_gold_charge_grams).toBe("2.5");
+  expect((submitted?.items as Record<string, unknown>[])[0]).not.toHaveProperty(
+    "gold_charge_in_grams",
+  );
 });

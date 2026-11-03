@@ -12,6 +12,7 @@ from app.models.inventoryStock import InventoryStock
 from app.models.itemReturn import ItemReturn
 from app.models.location import Location
 from app.models.operationReceipt import OperationReceipt
+from app.models.photoUpload import PhotoUpload
 from app.models.product import Product
 from app.models.purchase import Purchase
 from app.models.purchaseBook import PurchaseBook
@@ -27,6 +28,7 @@ from app.models.suppliers import Supplier
 from app.models.user import User, UserRole
 
 __all__ = [
+    "PhotoUpload",
     "OperationReceipt",
     "CashEntry",
     "CashReconciliation",

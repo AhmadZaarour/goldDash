@@ -6,6 +6,30 @@ import {
   type ReactNode,
 } from "react";
 const ar: Record<string, string> = {
+  "Live gold price": "سعر الذهب المباشر",
+  "24K ounce (USD)": "أونصة عيار ٢٤ (دولار)",
+  "24K gram (USD)": "غرام عيار ٢٤ (دولار)",
+  "21K gram (USD)": "غرام عيار ٢١ (دولار)",
+  "18K gram (USD)": "غرام عيار ١٨ (دولار)",
+  "Stale quote": "سعر قديم",
+  "Latest quote": "آخر سعر",
+  "Customer bulk purchase": "شراء ذهب بالجملة من زبون",
+  "Customer bulk purchases": "مشتريات الذهب من الزبائن",
+  "Total paid (USD)": "إجمالي المدفوع (دولار)",
+  "Total gold charge (g)": "إجمالي استحقاق الذهب (غ)",
+  "Converted to 24K debt by item purity":
+    "يُحوَّل إلى دين عيار ٢٤ حسب نقاوة كل قطعة",
+  "Remove photo": "إزالة الصورة",
+  "Repayment factor": "معامل السداد",
+  "Payment purity": "عيار الذهب المدفوع",
+  "Physical gold (g)": "وزن الذهب المدفوع (غ)",
+  "Cash for gold (USD)": "نقد مقابل دين الذهب (دولار)",
+  "USD per 24K-equivalent gram": "دولار لكل غرام مكافئ لعيار ٢٤",
+  "Gold debt (24K equivalent g)": "دين الذهب (غ مكافئ لعيار ٢٤)",
+  "Total cash payment (USD)": "إجمالي الدفعة النقدية (دولار)",
+  "Gold debt is standardized to 24K equivalent. Making charges remain in USD.":
+    "دين الذهب موحد بمكافئ عيار ٢٤. تبقى المصنعية بالدولار.",
+
   "Piece cost reference": "مرجع تكلفة القطعة",
   "Total weight (g)": "الوزن الإجمالي (غ)",
   "Base cost (USD)": "التكلفة الأساسية (دولار)",

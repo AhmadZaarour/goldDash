@@ -16,7 +16,7 @@ def gold_purity_payload() -> dict[str, str]:
     return {
         "name": f"gold-purity-{suffix}",
         "karat": 24,
-        "purity": 99.9,
+        "purity": "99.900000",
     }
 
 async def test_create_gold_purity(client: AsyncClient):

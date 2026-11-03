@@ -12,7 +12,7 @@ cashier accounts using `POST /api/v1/auth/register`; bootstrap administrators wi
 | Read catalog, inventory, supplier balances/history | All authenticated users |
 | Edit catalog, suppliers, locations, purities and products | Admin |
 | Create purchases, bulk sales to suppliers, supplier settlements/reversals | Admin |
-| Customer sales and item returns | Cashier or admin |
+| Customer sales, item returns and walk-in bulk purchases | Cashier or admin |
 | Item/stock transfers, images and servicing | Employee or admin |
 | Read cash entries and totals | Cashier or admin |
 | Record/read cash reconciliations | Admin |
@@ -23,61 +23,121 @@ Inactive accounts cannot log in, refresh, or use existing access tokens. Refresh
 tokens rotate atomically; logout revokes the refresh token. Access tokens expire
 according to ACCESS_TOKEN_EXPIRE_MINUTES and are not revoked by logout alone.
 
-## Supplier obligations and settlements
+## Gold prices, purities and supplier obligations
 
-One purchase invoice belongs to one supplier. Every item line on it must name that
-supplier. One item line means one physical, barcoded piece. Bulk sales are to
-suppliers; customer sales use individual items. A purchase may contain multiple
-purities, which remain separate in the supplier ledger.
+Authenticated `GET /api/v1/gold-price` returns USD per ounce and per gram for
+24K, 21K and 18K, `fetched_at`, provider `source_updated_at`, and `stale`.
+The backend alone requests `https://api.gold-api.com/price/XAU`. Redis shares a
+30-second successful-quote cache and upstream-attempt cooldown across workers.
+Concurrent refreshes coalesce; failures also observe the cooldown. The last
+successful quote is retained and explicitly marked stale on failure. A first
+request during a refresh can return 503; clients retry after 30 seconds.
+Redis failure returns 503 without contacting the provider. No browser requests
+are made directly to the provider. Deployment egress must allow api.gold-api.com.
 
-Gold obligations are grams at the transaction's actual purity, without conversion
-or netting across purities. Making charges are USD. Positive balances mean the
-shop owes the supplier; negative balances mean the supplier owes the shop.
-Purchases increase obligations; bulk sales decrease them.
+Prices: 24K gram = ounce / 31.1; 18K gram = 24K gram × 0.75 / 0.995;
+21K gram = 24K gram × 0.875 / 0.995. Market quotes are suggestions, never
+retroactive transaction prices. Manual settlement prices are authoritative.
 
-- `GET /api/v1/suppliers/{id}/balance`: grams by purity ID, a separate USD balance,
-  and `is_settled` (true only when USD and every purity balance are zero).
-  Settlement status is computed from the running account; new trade reopens it.
-  The frontend separates what the shop owes from what the supplier owes.
-- `GET /api/v1/suppliers/{id}/availability?location_id=...&placement=factory`:
-  admin-only recorded drawer cash and bulk gold by purity at that location/bucket.
-- `GET /api/v1/suppliers/{id}/ledger`: immutable history, including invoice links,
-  author, time, corrections and source keys. Filters: `purity_id`, `kind`,
-  `from_at`, `to_at`; standard `limit`/`offset` pagination applies.
-- `POST /api/v1/suppliers/{id}/settlements`: `idempotency_key`, `direction`
-  (`sent` or `received`), `gold_grams`, `purity_id`, `making_usd`, `location_id`,
-  `placement` (`factory` by default, or `showroom`), optional `close_account`.
-  Every settlement requires a location. Gold also requires a purity.
-  Sent amounts reduce obligations and withdraw gold/cash; received amounts
-  increase obligations and add gold/cash. Sent cash cannot exceed recorded drawer
-  cash, and sent gold cannot exceed bulk stock in that exact location, placement
-  and purity. Barcoded pieces cannot fund a bulk gold settlement.
-  `close_account=true` requires the resulting USD and **all** purity balances
-  to be zero, checked against current balances in the transaction. Partial
-  payments leave the account outstanding. USD and different purities never offset
-  one another. A single payment can settle one purity plus USD; use separate
-  payments for other purities. Advance payments remain allowed when not requesting
-  full settlement, subject to available resources.
-- `POST /api/v1/suppliers/{id}/ledger/{entry_id}/reverse`: admin-only correction
-  of a settlement, requiring `idempotency_key` and `reason`. It appends opposite
-  supplier and cash entries rather than editing the original. It also reverses
-  physical gold moved by the original settlement. Reversing a received payment
-  requires enough remaining drawer cash and gold in the original bucket.
-  Only one reversal
-  per settlement is allowed. Invoice entries cannot be reversed this way.
+Purity percentages are exact decimals (75 for 18K, 87.5 for 21K, 99.5 for
+24K). `repayment_factor` is a separate configurable decimal fraction, defaulting
+to 0.74 for 18K, 0.865 for 21K and 1 for 24K. Other karats default to their
+purity percentage / 100 and may be configured explicitly. These commercial
+repayment factors apply universally, including same-purity repayments.
+Changing catalog settings does not recalculate completed transactions.
 
-Repeated settlement/reversal keys return 409; the frontend must not invent a new
-key on an uncertain retry. It can inspect ledger history to find the original.
-New gold settlements move bulk inventory atomically with the supplier ledger and
-USD cash entry. Do not record the same delivery as an additional bulk sale or
-transfer. Location locks serialize settlement payments against other cash writes;
-stock rows are also locked. Rejected payments leave all balances unchanged.
-Historical gold settlements from before this change did not move inventory;
-they are preserved without fabricated stock movements and their reversals do not
-change gold stock. Existing cash locations are backfilled from cash entries.
-Available cash is the sum of recorded drawer entries, not a reconciliation opening
-amount or counted amount; reconciliation records do not add spendable funds.
-Cash posting records a payment and does not execute a real-world payment.
+### Item purchase invoices
+
+`POST /api/v1/purchases/item` is admin-only and requires `Idempotency-Key`.
+Each line contains product, physical weight, purchase gold price per gram,
+USD making charge and optional external image URL or staged `photo_token`.
+There is no per-line gold-charge input. `total_gold_charge_grams` is required
+and must equal the sum of the physical item weights; the frontend calculates it.
+
+Debt is standardized to 24K equivalent: sum each line's weight × purity / 99.5
+(24K weight uses factor 1), then round once to 0.001g, half up. This supports
+mixed-purity invoices without adding unlike weights into a single conversion.
+The invoice posts one gold debt plus its total USD making charges. Gold and USD
+remain separate obligations. Positive balances mean the shop owes the supplier;
+negative balances mean the supplier owes the shop.
+
+The invoice's total physical gold charge is allocated among pieces in proportion
+to fine-gold content for costing. Largest-remainder allocation at 0.001g keeps
+the allocations nonnegative and their sum exact. Allocations are stored as each
+piece's `gold_charge_in_grams` for accounting. The pricing-reference base cost
+retains the test branch's formula: physical weight × (purchase gram price +
+making charge). Historical purchase-line values remain unchanged.
+Each new line stores the valuation factor used, and the invoice records both
+its physical total and its standardized gold debt.
+
+### Balances and settlements
+
+`GET /api/v1/suppliers/{id}/balance` exposes authoritative `gold_24k`, separate
+`making_usd`, and `is_settled` (both must be zero). The legacy
+`gold_grams_by_purity` field describes nominal ledger history and must not be
+used to calculate settlement status or spendable physical stock.
+
+`GET /api/v1/suppliers/{id}/availability?location_id=...&placement=factory`
+returns actual drawer cash and actual bulk stock by purity. Barcoded pieces
+cannot fund bulk settlements. Only admins may settle accounts or query availability.
+
+`POST /api/v1/suppliers/{id}/settlements` accepts:
+
+- `idempotency_key`, `direction` (`sent` / `received`), `location_id`,
+  `placement` (`factory` / `showroom`) and optional `close_account`.
+- `purity_id` and `gold_grams`: the actual physical payment. The 24K debt
+  credit is actual weight × that purity's commercial repayment factor.
+- `cash_gold_usd`: cash substituted for gold debt. A positive amount requires
+  `gold_price_usd`, the agreed USD per 24K-equivalent gram. Gold credit is
+  cash / entered price. The UI suggests a fresh quote once and allows editing.
+- `making_usd`: cash against the separate USD making-charge obligation.
+
+Combined gold credit is rounded once to 0.001g, half up. Sent payments reduce
+debt and stock/cash; received payments increase them. Actual cash moved is
+`cash_gold_usd + making_usd`. The preview uses the same conversions and rounding
+as the server. `close_account` requires exactly zero resulting gold and USD;
+no silent debt write-off occurs. Partial and advance payments are allowed.
+
+Stock checks use the selected physical purity, location and placement. Drawer
+cash must cover sent cash. Location → supplier → stock locks prevent concurrent
+overspending. Payment snapshots, supplier credit, stock and cash commit together.
+Repeated settlement keys return 409; never invent a new key after an uncertain
+response—inspect ledger history for the original payment.
+
+`POST /api/v1/suppliers/{id}/ledger/{entry_id}/reverse` appends an opposite
+ledger entry and restores the exact original physical gold and cash. It uses
+recorded amounts and factors, never current settings or quotes. Only settlements
+can be reversed, once each. Reversing received resources requires sufficient
+remaining stock/cash. Historical payments retain their original resource behavior.
+
+The migration preserves historical ledger grams, USD and item costs, and adds a
+one-time 24K-equivalent snapshot. Original nominal entries remain visible.
+Do not downgrade after new purchase/converted-settlement activity: downgrade
+refuses to discard those payment snapshots. Use a reviewed backup restore.
+
+### Walk-in customer bulk purchases
+
+Admin/cashier `POST /api/v1/purchases/customer-stock` requires `Idempotency-Key`.
+It takes `location_id`, bulk `product_id`, `placement`, positive `weight` and
+`paid_usd`, with optional invoice number/notes. No customer identity is collected.
+The purchase has `source=customer` and no supplier. Actual stock increases and
+an immediate `customer_purchase` cash outflow is posted atomically. Insufficient
+drawer cash rejects the entire purchase. Matching retries return the original
+purchase; changed data with the same key returns 409.
+
+Cash summary includes `customer_purchases_usd`; net cash and reconciliation
+include the outflow. It is an inventory acquisition, not an operating expense
+or supplier debt. Supplier bulk purchases continue to post supplier obligations.
+
+### Photos while purchasing
+
+Admin/cashier `POST /api/v1/purchases/photos` accepts raw JPEG/PNG/WebP bytes
+using the existing 10 MB limit and normalization. It returns a `token` and
+an authenticated preview URL. Tokens belong to the uploader and expire after
+24 hours. Include a token on its purchase line; the transaction claims it once
+and assigns its photo to the inventory item. Purchase replay retains the same
+items and attachments. Expired unclaimed photos are cleaned in bounded batches
+on later uploads. Canceling/removing a preview leaves an expiring temporary upload.
 
 ## Customer cash sales and reconciliation
 
@@ -185,7 +245,7 @@ release supports customer item returns and supplier settlement corrections.
 
 ### Retryable operations
 
-`POST /purchases/item`, `/purchases/stock`, and `/inventory/stocks/transfer` now
+`POST /purchases/item`, `/purchases/stock`, `/purchases/customer-stock`, and `/inventory/stocks/transfer`
 require an `Idempotency-Key` header (1–100 characters, not blank), under `/api/v1`.
 Generate a new key for each intentional operation. Retain the same key, request
 data, and signed-in account when retrying after a timeout. Keys are scoped to the
@@ -308,15 +368,14 @@ activity; it does not lock out other browser sessions after completion.
 ## Barcoded piece base cost
 
 Inventory item list/detail responses include read-only `base_cost_usd`, calculated
-from the linked purchase line as `gold_charge_in_grams × gold_price_per_gram +
-making_charge`, rounded to cents half up. This is the USD equivalent of the
-supplier obligation at the original purchase gold price, not proof that the
-supplier has been paid in USD. The piece's physical `weight` is displayed
-separately and is not substituted for supplier gold-charge grams.
+from the linked purchase line as `weight × (gold_price_per_gram + making_charge)`,
+rounded to cents half up. This retains the pricing-reference formula already on
+the test branch. It is separate from supplier debt and the monthly report's
+sale-time gold valuation.
 
-For example, a 10.000 g piece with a 10.200 g supplier gold charge, purchase gold
-price of $80/g and $15 making charge has a $831.00 base cost. The value is derived
-rather than stored a second time, so existing items gain it without a migration.
+For example, a 10.000 g piece with a purchase gold price of $80/g and a making
+charge value of $15 has a $950.00 base cost under this formula. The value is derived
+rather than stored a second time.
 It remains tied to the original purchase across transfers, sales, returns and
 resale. Inventory lists/details and each selected customer-sale line show weight
 and base cost for pricing reference. The final selling price remains explicitly

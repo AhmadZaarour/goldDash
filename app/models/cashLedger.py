@@ -11,6 +11,9 @@ class CashEntry(Base):
     __tablename__ = "cash_entries"
     __table_args__ = (
         CheckConstraint(
+            "kind = 'customer_purchase' OR purchase_id IS NULL", name="ck_cash_purchase_source"
+        ),
+        CheckConstraint(
             "(kind = 'sale' AND amount_usd >= 0 AND sale_id IS NOT NULL "
             "AND return_id IS NULL AND supplier_entry_id IS NULL) "
             "OR (kind = 'refund' AND amount_usd <= 0 AND return_id IS NOT NULL "
@@ -19,10 +22,13 @@ class CashEntry(Base):
             "AND supplier_entry_id IS NOT NULL AND sale_id IS NULL AND return_id IS NULL)"
             " OR (kind IN ('expense', 'withdrawal') AND amount_usd < 0 "
             "AND sale_id IS NULL AND return_id IS NULL AND supplier_entry_id IS NULL "
-            "AND description IS NOT NULL AND length(trim(description)) > 0)",
+            "AND description IS NOT NULL AND length(trim(description)) > 0)"
+            " OR (kind = 'customer_purchase' AND amount_usd < 0 AND purchase_id IS NOT NULL "
+            "AND sale_id IS NULL AND return_id IS NULL AND supplier_entry_id IS NULL)",
             name="ck_cash_sources_outflows",
         ),
     )
+    purchase_id: Mapped[int | None] = mapped_column(ForeignKey("purchases.id"), unique=True)
     id: Mapped[int] = mapped_column(primary_key=True)
     location_id: Mapped[int] = mapped_column(ForeignKey("locations.id"), index=True)
     sale_id: Mapped[int | None] = mapped_column(ForeignKey("sales.id"), unique=True)

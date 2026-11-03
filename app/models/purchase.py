@@ -1,6 +1,7 @@
 from datetime import datetime
+from decimal import Decimal
 
-from sqlalchemy import DateTime, ForeignKey, String, func
+from sqlalchemy import DateTime, ForeignKey, Numeric, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -33,7 +34,12 @@ class Purchase(Base):
         nullable=False,
     )
 
-    supplier_id: Mapped[int] = mapped_column(ForeignKey("suppliers.id"))
+    source: Mapped[str] = mapped_column(String(20), nullable=False, server_default="supplier")
+    total_gold_charge_grams: Mapped[Decimal | None] = mapped_column(Numeric(14, 3))
+    gold_debt_24k: Mapped[Decimal | None] = mapped_column(Numeric(20, 6))
+    paid_usd: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+
+    supplier_id: Mapped[int | None] = mapped_column(ForeignKey("suppliers.id"))
 
     location_id: Mapped[int] = mapped_column(
         ForeignKey("locations.id"),

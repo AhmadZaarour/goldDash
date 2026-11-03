@@ -28,6 +28,8 @@ class PurchaseItem(Base):
 
     product: Mapped["Product"] = relationship(lazy="joined")
 
+    valuation_factor: Mapped[Decimal | None] = mapped_column(Numeric(14, 10))
+
     weight: Mapped[Decimal] = mapped_column(
         Numeric(14, 3),
     )

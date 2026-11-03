@@ -9,8 +9,8 @@ pytestmark = pytest.mark.asyncio(loop_scope="session")
 @pytest.mark.parametrize(
     "grams,rate,making,expected",
     [
-        ("2.345", "1.0000", "8.25", "10.60"),
-        ("0", "100", "0", "0.00"),
+        ("7.777", "1.0000", "8.25", "71.94"),
+        ("7.777", "0", "0", "0.00"),
     ],
 )
 async def test_purchase_base_cost_is_automatic_and_fixed_through_resale(
@@ -24,6 +24,7 @@ async def test_purchase_base_cost_is_automatic_and_fixed_through_resale(
         json={
             "supplier_id": data["supplier_id"],
             "location_id": data["location_id"],
+            "total_gold_charge_grams": "7.777",
             "items": [
                 {
                     "supplier_id": data["supplier_id"],
@@ -49,6 +50,7 @@ async def test_purchase_base_cost_is_automatic_and_fixed_through_resale(
         "/api/v1/sales/item",
         json={
             "location_id": data["location_id"],
+            "total_gold_charge_grams": "7.777",
             "items": [
                 {
                     "inventory_item_id": inventory["id"],
@@ -75,6 +77,7 @@ async def test_purchase_base_cost_is_automatic_and_fixed_through_resale(
         "/api/v1/sales/item",
         json={
             "location_id": data["location_id"],
+            "total_gold_charge_grams": "7.777",
             "items": [
                 {
                     "inventory_item_id": inventory["id"],

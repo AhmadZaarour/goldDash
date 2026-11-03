@@ -23,6 +23,7 @@ async def test_purchase_generates_unique_item_barcodes(client, test_session_fact
             "supplier_id": purchase.supplier_id,
             "created_by": purchase.created_by,
             "location_id": purchase.location_id,
+            "total_gold_charge_grams": "1",
             "items": [
                 {
                     "supplier_id": purchase.supplier_id,

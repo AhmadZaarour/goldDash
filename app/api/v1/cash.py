@@ -27,6 +27,7 @@ class CashEntryResponse(BaseModel):
     sale_id: int | None
     return_id: int | None
     supplier_entry_id: int | None
+    purchase_id: int | None
     description: str | None
     category: str | None
     kind: str
@@ -91,6 +92,7 @@ async def entries(
         "supplier_reversal",
         "expense",
         "withdrawal",
+        "customer_purchase",
     ]
     | None = None,
 ):
@@ -116,6 +118,7 @@ class CashSummaryResponse(BaseModel):
     expenses_usd: Decimal
     withdrawals_usd: Decimal
     supplier_reversals_usd: Decimal
+    customer_purchases_usd: Decimal
     net_usd: Decimal
 
 
@@ -143,6 +146,7 @@ async def summary(
         "supplier_reversals_usd": totals.get("supplier_reversal", zero),
         "expenses_usd": -totals.get("expense", zero),
         "withdrawals_usd": -totals.get("withdrawal", zero),
+        "customer_purchases_usd": -totals.get("customer_purchase", zero),
         "net_usd": sum(totals.values(), zero),
     }
 

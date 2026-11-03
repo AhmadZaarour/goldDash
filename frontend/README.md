@@ -106,7 +106,22 @@ to direct API calls. Keep it disabled outside disposable development systems.
 
 The item inventory table, piece detail dialog and each selected customer-sale
 line show the piece's total physical weight and calculated base cost in USD.
-Base cost values the supplier gold-charge grams at the original purchase gold
-price and includes the supplier making charge. It is a cash-equivalent pricing
+Base cost uses physical weight × (purchase gold price per gram + making charge),
+preserving the formula on the test branch. It is a cash-equivalent pricing
 reference, separate from payment status and the monthly report's sale-time gold
 valuation. Checkout keeps the final selling price blank for explicit entry.
+
+## Updated purchase and settlement workflows
+
+Overview shows the cached USD gold quote for an ounce and 18K/21K/24K grams,
+including its timestamp and stale status. The browser calls only our API.
+
+Item purchases show one calculated invoice gold-charge total and camera/upload
+controls on each line. Photos are staged, previewed, then attached atomically when
+the purchase succeeds. Supplier gold debt is shown in 24K equivalent. The payment
+form separately shows physical gold, cash against gold debt and USD making charges;
+the editable USD-per-24K-gram rate is suggested from a fresh quote once.
+
+The Purchases screen also offers Customer bulk purchase to admins and cashiers.
+No customer record is required; the total paid leaves the selected drawer and
+bulk weight enters its selected stock bucket together.

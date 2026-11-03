@@ -23,6 +23,7 @@ async def purchase_payload(client, factory):
         return {
             "supplier_id": purchase.supplier_id,
             "location_id": purchase.location_id,
+            "total_gold_charge_grams": "1",
             "items": [
                 {
                     "supplier_id": purchase.supplier_id,

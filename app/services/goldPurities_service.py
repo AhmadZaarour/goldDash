@@ -1,8 +1,11 @@
+from decimal import Decimal
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.goldPurities import GoldPurity
 from app.schemas.goldPurities import GoldPurityCreate, GoldPurityUpdate
+
 
 async def create_gold_purity(
     db: AsyncSession,
@@ -22,6 +25,10 @@ async def create_gold_purity(
         name=gold_purities_data.name,
         karat=gold_purities_data.karat,
         purity=gold_purities_data.purity,
+        repayment_factor=gold_purities_data.repayment_factor
+        or {18: Decimal("0.74"), 21: Decimal("0.865"), 24: Decimal("1")}.get(
+            gold_purities_data.karat, gold_purities_data.purity / Decimal("100")
+        ),
     )
 
     db.add(gold_purity)
@@ -31,15 +38,15 @@ async def create_gold_purity(
 
     return gold_purity
 
+
 async def get_gold_purities(
-        db: AsyncSession,
+    db: AsyncSession,
 ) -> list[GoldPurity]:
 
-    gold_purities = await db.scalars(
-        select(GoldPurity).order_by(GoldPurity.id)
-    )
+    gold_purities = await db.scalars(select(GoldPurity).order_by(GoldPurity.id))
 
     return list(gold_purities.all())
+
 
 async def get_gold_purity(
     db: AsyncSession,
@@ -51,6 +58,7 @@ async def get_gold_purity(
             GoldPurity.id == gold_purity_id,
         )
     )
+
 
 async def update_gold_purity(
     db: AsyncSession,

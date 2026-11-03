@@ -144,7 +144,7 @@ async def create_stock_sale(
             raise ValueError("Insufficient factory inventory weight")
         updated_balance = InventoryBalanceUpdate(total_weight=balance.total_weight - weight)
         await inventory_balance_update(db, balance, updated_balance)
-        post_entry(
+        await post_entry(
             db,
             supplier_id=sale_data.item.supplier_id,
             purity_id=sale_data.item.gold_purity_id,

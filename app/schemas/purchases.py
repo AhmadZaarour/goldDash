@@ -11,7 +11,7 @@ class PurchaseLineCreate(BaseModel):
     product_id: int
     weight: Decimal = Field(gt=0, decimal_places=3, max_digits=12)
     gold_price_per_gram: Decimal = Field(ge=0, decimal_places=4, max_digits=14)
-    gold_charge_in_grams: Decimal = Field(ge=0, decimal_places=3, max_digits=14)
+    photo_token: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
     making_charge: Decimal = Field(ge=0, decimal_places=2, max_digits=14)
 
 
@@ -22,7 +22,8 @@ class PurchaseCreate(BaseModel):
     created_by: int | None = None
     created_at: datetime | None = Field(default_factory=lambda: datetime.now(UTC))
     location_id: int
-    items: list[PurchaseLineCreate] = Field(min_length=1)
+    total_gold_charge_grams: Decimal = Field(gt=0, decimal_places=3, max_digits=14)
+    items: list[PurchaseLineCreate] = Field(min_length=1, max_length=100)
 
     @model_validator(mode="after")
     def one_supplier_per_invoice(self):
@@ -93,6 +94,11 @@ class PurchaseResponse(BaseModel):
     created_by: int
     created_at: datetime
     location_id: int
+    source: str
+    supplier_id: int | None
+    total_gold_charge_grams: Decimal | None
+    gold_debt_24k: Decimal | None
+    paid_usd: Decimal | None
 
 
 class PurchaseItemResponse(BaseModel):
@@ -106,3 +112,13 @@ class PurchaseItemResponse(BaseModel):
     gold_price_per_gram: Decimal
     gold_charge_in_grams: Decimal
     making_charge: Decimal
+
+
+class CustomerBulkPurchaseCreate(BaseModel):
+    location_id: int = Field(gt=0)
+    invoice_number: str | None = Field(default=None, max_length=50)
+    notes: str | None = Field(default=None, max_length=200)
+    product_id: int = Field(gt=0)
+    placement: Literal["factory", "showroom"] = "factory"
+    weight: Decimal = Field(gt=0, decimal_places=3, max_digits=12)
+    paid_usd: Decimal = Field(gt=0, decimal_places=2, max_digits=14)

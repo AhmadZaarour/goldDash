@@ -122,6 +122,7 @@ async def purchase_payloads(client, test_session_factory):
         header = {"supplier_id": purchase.supplier_id, "location_id": purchase.location_id}
         item_payload = {
             **header,
+            "total_gold_charge_grams": "1",
             "items": [
                 {
                     "supplier_id": purchase.supplier_id,

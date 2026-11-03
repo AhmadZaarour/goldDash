@@ -12,6 +12,8 @@ import {
 import Decimal from "decimal.js";
 import { DevelopmentReset } from "./development";
 import { ItemCostLabel, SaleItemCost } from "./item-cost";
+import { SupplierSettlement, type SupplierBalance } from "./settlement";
+import { GoldPrice } from "./gold-price";
 import { MonthlyProfitView } from "./profit";
 import { get, request, raw, list, Operation, type Row } from "./api";
 import { useLanguage } from "./i18n";
@@ -202,6 +204,7 @@ export function Dashboard() {
           )}
         </div>
       </div>
+      <GoldPrice />
       {can.admin && <MonthlyProfitView />}
       <section className="panel">
         <h2>{t("Quick actions")}</h2>
@@ -299,11 +302,19 @@ const catalogs: Record<
         min: "0",
         required: true,
       },
+      {
+        key: "repayment_factor",
+        label: "Repayment factor",
+        type: "number",
+        min: "0",
+        step: "0.000001",
+      },
     ],
     columns: [
       { key: "name", label: "Name" },
       { key: "karat", label: "Karat" },
       { key: "purity", label: "Purity (%)" },
+      { key: "repayment_factor", label: "Repayment factor" },
     ],
   },
   locations: {
@@ -736,35 +747,108 @@ export function Inventory() {
   );
 }
 
+function PurchasePhoto({
+  value,
+  change,
+  disabled,
+  onBusy,
+}: {
+  value: Values;
+  change: (next: Values) => void;
+  disabled: boolean;
+  onBusy: (busy: boolean) => void;
+}) {
+  const { t } = useLanguage();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>();
+  async function upload(file?: File) {
+    if (!file) return;
+    setBusy(true);
+    onBusy(true);
+    setError(undefined);
+    try {
+      const result = await request<{ token: string; image_url: string }>(
+        "/purchases/photos",
+        { method: "POST", body: await resizePhoto(file) },
+      );
+      change({ photo_token: result.token, photo_preview: result.image_url });
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBusy(false);
+      onBusy(false);
+    }
+  }
+  return (
+    <div>
+      {value.photo_preview && <Photo url={value.photo_preview} />}
+      <label>
+        {t("Take / choose photo")}
+        <input
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          capture="environment"
+          disabled={busy || disabled}
+          onChange={(e) => {
+            void upload(e.target.files?.[0]);
+            e.target.value = "";
+          }}
+        />
+      </label>
+      {busy && <Busy />}
+      {value.photo_token && (
+        <button
+          type="button"
+          className="ghost"
+          disabled={busy || disabled}
+          onClick={() => change({ photo_token: "", photo_preview: "" })}
+        >
+          {t("Remove photo")}
+        </button>
+      )}
+      <ErrorBox error={error} />
+    </div>
+  );
+}
+
 function TradeForm({
   kind,
   done,
 }: {
-  kind: "itemPurchase" | "bulkPurchase" | "customerSale" | "bulkSale";
+  kind:
+    | "itemPurchase"
+    | "bulkPurchase"
+    | "customerBulkPurchase"
+    | "customerSale"
+    | "bulkSale";
   done: () => void;
 }) {
   const { t } = useLanguage();
   const purchase = kind.endsWith("Purchase");
-  const bulk = kind.startsWith("bulk");
+  const customerBulk = kind === "customerBulkPurchase";
+  const bulk = kind.startsWith("bulk") || customerBulk;
   const [head, setHead] = useState<Values>({});
   const [lines, setLines] = useState<Values[]>([{}]);
   const [scan, setScan] = useState("");
   const [error, setError] = useState<unknown>();
   const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const op = useRef(new Operation());
   const headerFields: Field[] = [
     locationField,
-    ...(purchase || kind === "bulkSale"
-      ? [supplierField]
-      : [
-          {
-            key: "customer_id",
-            label: "Customer",
-            type: "select" as const,
-            resource: "customers",
-            optional: true,
-          },
-        ]),
+    ...(customerBulk
+      ? []
+      : purchase || kind === "bulkSale"
+        ? [supplierField]
+        : [
+            {
+              key: "customer_id",
+              label: "Customer",
+              type: "select" as const,
+              resource: "customers",
+              optional: true,
+            },
+          ]),
     { key: "invoice_number", label: "Invoice number", maxLength: 50 },
     note,
   ];
@@ -774,46 +858,58 @@ function TradeForm({
           product("item"),
           amount("weight", "Weight (g)"),
           amount("gold_price_per_gram", "Gold price / gram"),
-          amount("gold_charge_in_grams", "Gold charge (g)"),
           amount("making_charge", "Making charge (USD)"),
           { key: "image_url", label: "Image URL", maxLength: 2048 },
         ]
-      : kind === "bulkPurchase"
+      : customerBulk
         ? [
             product("bulk"),
             {
-              key: "stock_for",
+              key: "placement",
               label: "Placement",
               type: "select",
               options: ["factory", "showroom"],
               required: true,
             },
             amount("weight", "Weight (g)"),
-            amount("cost_per_gram", "Cost / gram"),
-            amount("making_charge", "Making charge (USD)"),
+            amount("paid_usd", "Total paid (USD)"),
           ]
-        : kind === "bulkSale"
+        : kind === "bulkPurchase"
           ? [
-              { ...purity, key: "gold_purity_id" },
+              product("bulk"),
+              {
+                key: "stock_for",
+                label: "Placement",
+                type: "select",
+                options: ["factory", "showroom"],
+                required: true,
+              },
               amount("weight", "Weight (g)"),
-              amount("gold_charge_in_grams", "Gold charge (g)"),
+              amount("cost_per_gram", "Cost / gram"),
               amount("making_charge", "Making charge (USD)"),
             ]
-          : [
-              {
-                key: "inventory_item_id",
-                label: "Product",
-                type: "select",
-                resource: "inventory/items",
-                required: true,
-                filter: (r) =>
-                  r.status === "in_stock" &&
-                  String(r.location_id) === String(head.location_id),
-              },
-              amount("gold_price_per_gram", "Gold price / gram"),
-              amount("discount", "Discount (USD)"),
-              amount("sell_price", "Final price (USD)"),
-            ];
+          : kind === "bulkSale"
+            ? [
+                { ...purity, key: "gold_purity_id" },
+                amount("weight", "Weight (g)"),
+                amount("gold_charge_in_grams", "Gold charge (g)"),
+                amount("making_charge", "Making charge (USD)"),
+              ]
+            : [
+                {
+                  key: "inventory_item_id",
+                  label: "Product",
+                  type: "select",
+                  resource: "inventory/items",
+                  required: true,
+                  filter: (r) =>
+                    r.status === "in_stock" &&
+                    String(r.location_id) === String(head.location_id),
+                },
+                amount("gold_price_per_gram", "Gold price / gram"),
+                amount("discount", "Discount (USD)"),
+                amount("sell_price", "Final price (USD)"),
+              ];
   async function addBarcode() {
     setError(undefined);
     if (!head.location_id) {
@@ -859,12 +955,29 @@ function TradeForm({
           row.supplier_id = Number(head.supplier_id);
         return row;
       });
+      if (kind === "itemPurchase") {
+        payload.total_gold_charge_grams = lines
+          .reduce(
+            (sum, line) => sum.plus(String(line.weight || 0)),
+            new Decimal(0),
+          )
+          .toString();
+        converted.forEach((line, index) => {
+          if (lines[index].photo_token)
+            line.photo_token = lines[index].photo_token;
+        });
+      }
+      if (customerBulk) Object.assign(payload, converted[0]);
       if (kind === "bulkSale") delete payload.supplier_id;
-      if (bulk) payload.item = converted[0];
+      if (customerBulk) {
+        /* flat request; no customer identity */
+      } else if (bulk) payload.item = converted[0];
       else payload.items = converted;
-      const path = purchase
-        ? "/purchases/" + (bulk ? "stock" : "item")
-        : "/sales/" + (bulk ? "stock" : "item");
+      const path = customerBulk
+        ? "/purchases/customer-stock"
+        : purchase
+          ? "/purchases/" + (bulk ? "stock" : "item")
+          : "/sales/" + (bulk ? "stock" : "item");
       await op.current.send(path, payload, "POST", purchase);
       done();
     } catch (e) {
@@ -892,6 +1005,23 @@ function TradeForm({
           setHead(v);
         }}
       />
+      {kind === "itemPurchase" && (
+        <p>
+          {t("Total gold charge (g)")}:{" "}
+          <bdi>
+            {lines
+              .reduce((sum, line) => {
+                try {
+                  return sum.plus(String(line.weight || 0));
+                } catch {
+                  return sum;
+                }
+              }, new Decimal(0))
+              .toFixed(3)}
+          </bdi>{" "}
+          · {t("Converted to 24K debt by item purity")}
+        </p>
+      )}
       {kind === "customerSale" && (
         <div className="scan">
           <input
@@ -915,42 +1045,60 @@ function TradeForm({
           </button>
         </div>
       )}
-      {lines.map((v, i) => (
-        <section className="line-item" key={i}>
-          <div className="section-title">
-            <h3>
-              {t(bulk ? "Details" : "Items")} {bulk ? "" : i + 1}
-            </h3>
-            {!bulk && lines.length > 1 && (
-              <button
-                type="button"
-                className="ghost danger"
-                onClick={() => setLines(lines.filter((_, j) => j !== i))}
-              >
-                {t("Remove")}
-              </button>
+      <fieldset disabled={busy || uploading}>
+        {lines.map((v, i) => (
+          <section className="line-item" key={i}>
+            <div className="section-title">
+              <h3>
+                {t(bulk ? "Details" : "Items")} {bulk ? "" : i + 1}
+              </h3>
+              {!bulk && lines.length > 1 && (
+                <button
+                  type="button"
+                  className="ghost danger"
+                  onClick={() => setLines(lines.filter((_, j) => j !== i))}
+                >
+                  {t("Remove")}
+                </button>
+              )}
+            </div>
+            <Fields
+              fields={lineFields}
+              values={v}
+              set={(next) =>
+                setLines(lines.map((x, j) => (j === i ? next : x)))
+              }
+            />
+            {kind === "itemPurchase" && (
+              <PurchasePhoto
+                value={v}
+                disabled={busy || uploading}
+                onBusy={setUploading}
+                change={(next) =>
+                  setLines((current) =>
+                    current.map((line, index) =>
+                      index === i ? { ...line, ...next } : line,
+                    ),
+                  )
+                }
+              />
             )}
-          </div>
-          <Fields
-            fields={lineFields}
-            values={v}
-            set={(next) => setLines(lines.map((x, j) => (j === i ? next : x)))}
-          />
-          {kind === "customerSale" && v.inventory_item_id && (
-            <SaleItemCost itemId={String(v.inventory_item_id)} />
-          )}
-        </section>
-      ))}
-      {!bulk && (
-        <button
-          type="button"
-          className="secondary"
-          onClick={() => setLines([...lines, {}])}
-        >
-          <Plus size={16} />
-          {t("Add piece")}
-        </button>
-      )}
+            {kind === "customerSale" && v.inventory_item_id && (
+              <SaleItemCost itemId={String(v.inventory_item_id)} />
+            )}
+          </section>
+        ))}
+        {!bulk && (
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => setLines([...lines, {}])}
+          >
+            <Plus size={16} />
+            {t("Add piece")}
+          </button>
+        )}
+      </fieldset>
       {kind === "customerSale" && (
         <div className="checkout-total">
           <span>{t("Cash collected")}</span>
@@ -963,7 +1111,9 @@ function TradeForm({
         <span className="muted small">
           {t("Keep this window open and retry after a connection failure.")}
         </span>
-        <button disabled={busy}>{t(busy ? "Working…" : "Confirm")}</button>
+        <button disabled={busy || uploading}>
+          {t(busy ? "Working…" : "Confirm")}
+        </button>
       </footer>
     </form>
   );
@@ -1025,6 +1175,11 @@ function TradeDetail({
           <strong>{date(record.created_at)}</strong>
         </div>
       </div>
+      {purchase && record.source === "customer" && (
+        <p>
+          {t("Total paid (USD)")}: ${money(record.paid_usd)}
+        </p>
+      )}
       <ErrorBox error={q.error} />
       {q.isLoading ? (
         <Busy />
@@ -1114,7 +1269,11 @@ export function Trades({ purchase = false }: { purchase?: boolean }) {
   const { t } = useLanguage();
   const can = useCan();
   const [action, setAction] = useState<
-    "itemPurchase" | "bulkPurchase" | "customerSale" | "bulkSale"
+    | "itemPurchase"
+    | "bulkPurchase"
+    | "customerBulkPurchase"
+    | "customerSale"
+    | "bulkSale"
   >();
   const [selected, setSelected] = useState<Row>();
   const [loc, setLoc] = useState("");
@@ -1125,6 +1284,11 @@ export function Trades({ purchase = false }: { purchase?: boolean }) {
         title={purchase ? "Purchases" : "Sales"}
         action={
           <div className="actions">
+            {purchase && can.cashier && (
+              <button onClick={() => setAction("customerBulkPurchase")}>
+                {t("Customer bulk purchase")}
+              </button>
+            )}
             {(purchase ? can.admin : can.cashier) && (
               <button
                 onClick={() =>
@@ -1183,13 +1347,15 @@ export function Trades({ purchase = false }: { purchase?: boolean }) {
       {action && (
         <Modal
           title={
-            action === "itemPurchase"
-              ? "Item purchase"
-              : action === "bulkPurchase"
-                ? "Bulk purchase"
-                : action === "customerSale"
-                  ? "Customer sale"
-                  : "Supplier bulk sale"
+            action === "customerBulkPurchase"
+              ? "Customer bulk purchase"
+              : action === "itemPurchase"
+                ? "Item purchase"
+                : action === "bulkPurchase"
+                  ? "Bulk purchase"
+                  : action === "customerSale"
+                    ? "Customer sale"
+                    : "Supplier bulk sale"
           }
           close={() => setAction(undefined)}
         >
@@ -1204,220 +1370,6 @@ export function Trades({ purchase = false }: { purchase?: boolean }) {
         />
       )}
     </>
-  );
-}
-
-type SupplierBalance = {
-  making_usd: string;
-  gold_grams_by_purity: Record<string, string>;
-  is_settled: boolean;
-};
-function SupplierSettlement({
-  supplierId,
-  balance,
-  done,
-}: {
-  supplierId: number;
-  balance: SupplierBalance;
-  done: () => void;
-}) {
-  const { t } = useLanguage();
-  const [values, set] = useState<Values>({
-    direction: "sent",
-    gold_grams: "0",
-    making_usd: "0",
-    placement: "factory",
-  });
-  const [closeAccount, setCloseAccount] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<unknown>();
-  const op = useRef(new Operation());
-  const available = useQuery({
-    queryKey: [
-      "list",
-      "settlement-available",
-      supplierId,
-      values.location_id,
-      values.placement,
-    ],
-    queryFn: () =>
-      get<{ cash_usd: string; gold_grams_by_purity: Record<string, string> }>(
-        `/suppliers/${supplierId}/availability?location_id=${values.location_id}&placement=${values.placement}`,
-      ),
-    enabled: !!values.location_id,
-  });
-  let valid = false,
-    full = false,
-    insufficient = false;
-  let gold = new Decimal(0),
-    usd = new Decimal(0);
-  const remainingGold = { ...balance.gold_grams_by_purity };
-  let remainingUsd = new Decimal(balance.making_usd);
-  try {
-    gold = new Decimal(String(values.gold_grams || "0"));
-    usd = new Decimal(String(values.making_usd || "0"));
-    valid =
-      gold.gte(0) &&
-      usd.gte(0) &&
-      (gold.gt(0) || usd.gt(0)) &&
-      (!gold.gt(0) || !!values.purity_id);
-    const sign = values.direction === "sent" ? -1 : 1;
-    remainingUsd = remainingUsd.plus(usd.times(sign));
-    if (values.purity_id)
-      remainingGold[String(values.purity_id)] = new Decimal(
-        remainingGold[String(values.purity_id)] || 0,
-      )
-        .plus(gold.times(sign))
-        .toString();
-    full =
-      remainingUsd.isZero() &&
-      Object.values(remainingGold).every((v) => new Decimal(v).isZero());
-    insufficient =
-      values.direction === "sent" &&
-      !!available.data &&
-      ((usd.gt(0) && usd.gt(available.data.cash_usd)) ||
-        (gold.gt(0) &&
-          gold.gt(
-            available.data.gold_grams_by_purity[String(values.purity_id)] || 0,
-          )));
-  } catch {
-    valid = false;
-  }
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setError(undefined);
-    try {
-      await op.current.send(
-        `/suppliers/${supplierId}/settlements`,
-        {
-          direction: values.direction,
-          location_id: Number(values.location_id),
-          placement: values.placement,
-          purity_id: values.purity_id ? Number(values.purity_id) : null,
-          gold_grams: gold.toString(),
-          making_usd: usd.toString(),
-          close_account: closeAccount,
-        },
-        "POST",
-        false,
-        true,
-      );
-      done();
-    } catch (err) {
-      setError(err);
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <form onSubmit={submit}>
-      <Fields
-        fields={[
-          {
-            key: "direction",
-            label: "Direction",
-            type: "select",
-            options: ["sent", "received"],
-            required: true,
-          },
-          locationField,
-          {
-            key: "placement",
-            label: "Placement",
-            type: "select",
-            options: ["factory", "showroom"],
-            required: true,
-          },
-          { ...purity, required: gold.gt(0) },
-          amount("gold_grams", "Gold (g)"),
-          amount("making_usd", "Making charge (USD)"),
-        ]}
-        values={values}
-        set={(v) => {
-          set(v);
-          setCloseAccount(false);
-        }}
-      />
-      <section className="panel">
-        <h3>{t("Settlement preview")}</h3>
-        <p>
-          {t("sent")} = {t("We pay supplier")} · {t("received")} ={" "}
-          {t("Supplier pays us")}
-        </p>
-        <p>
-          {t("Available cash")}: <bdi>${money(available.data?.cash_usd)}</bdi>
-        </p>
-        <p>
-          {t("Available bulk gold")}:{" "}
-          <bdi>
-            {available.data?.gold_grams_by_purity[String(values.purity_id)] ??
-              "0.000"}{" "}
-            g
-          </bdi>
-        </p>
-        <p>
-          {t("USD balance before / after")}:{" "}
-          <bdi>
-            ${money(balance.making_usd)} → ${remainingUsd.toFixed(2)}
-          </bdi>
-        </p>
-        {Object.entries(remainingGold).map(([id, after]) => (
-          <p key={id}>
-            <ReferenceName resource="goldpurities" value={id} />:{" "}
-            <bdi>
-              {balance.gold_grams_by_purity[id] ?? "0.000"} → {after} g
-            </bdi>
-          </p>
-        ))}
-        <small>
-          {t("Positive: we owe supplier. Negative: supplier owes us.")}
-        </small>
-        {insufficient && (
-          <p role="alert">
-            {t("Not enough cash or bulk gold at this location.")}
-          </p>
-        )}
-        <p>
-          {t(
-            full
-              ? "This payment fully settles the account."
-              : "The account will remain outstanding.",
-          )}
-        </p>
-        <label>
-          <input
-            type="checkbox"
-            checked={closeAccount}
-            disabled={!valid || !full || insufficient}
-            onChange={(e) => setCloseAccount(e.target.checked)}
-          />{" "}
-          {t("Settle account in full")}
-        </label>
-        <p>
-          <small>
-            {t(
-              "Full settlement requires zero USD and zero gold at every purity.",
-            )}
-          </small>
-        </p>
-      </section>
-      <ErrorBox error={error || available.error} />
-      <footer>
-        <button
-          disabled={
-            busy ||
-            !valid ||
-            !available.data ||
-            available.isFetching ||
-            insufficient ||
-            (closeAccount && !full)
-          }
-        >
-          {t(busy ? "Working…" : "Record settlement")}
-        </button>
-      </footer>
-    </form>
   );
 }
 
@@ -1484,23 +1436,25 @@ export function Suppliers() {
                       ).toString(),
                   )}
                 </strong>
-                <span>{t("Gold balances by purity")}</span>
-                {Object.entries(balance.data?.gold_grams_by_purity ?? {})
-                  .filter(([, value]) =>
-                    owe ? new Decimal(value).gt(0) : new Decimal(value).lt(0),
-                  )
-                  .map(([id, value]) => (
-                    <strong key={id}>
-                      <ReferenceName resource="goldpurities" value={id} /> ·{" "}
-                      <bdi>{new Decimal(value).abs().toFixed(3)} g</bdi>
-                    </strong>
-                  ))}
+                <span>{t("Gold debt (24K equivalent g)")}</span>
+                <strong dir="ltr">
+                  {balance.data
+                    ? (owe
+                        ? Decimal.max(balance.data.gold_24k, 0)
+                        : Decimal.max(
+                            new Decimal(balance.data.gold_24k).negated(),
+                            0,
+                          )
+                      ).toFixed(3)
+                    : "—"}{" "}
+                  g
+                </strong>
               </div>
             ))}
           </div>
           <p>
             {t(
-              "Gold and USD are separate. Different purities do not offset each other.",
+              "Gold debt is standardized to 24K equivalent. Making charges remain in USD.",
             )}
           </p>
           {can.admin && balance.data && (
@@ -1539,7 +1493,20 @@ export function Suppliers() {
                     <ReferenceName resource="locations" value={r.location_id} />
                   ),
                 },
-                { key: "gold_grams", label: "Gold (g)" },
+                { key: "gold_24k", label: "Gold debt (24K equivalent g)" },
+                { key: "physical_gold_grams", label: "Physical gold (g)" },
+                {
+                  key: "physical_purity_id",
+                  label: "Payment purity",
+                  render: (r) => (
+                    <ReferenceName
+                      resource="goldpurities"
+                      value={r.physical_purity_id}
+                    />
+                  ),
+                },
+                { key: "cash_gold_usd", label: "Cash for gold (USD)" },
+                { key: "gold_price_usd", label: "USD per 24K-equivalent gram" },
                 { key: "making_usd", label: "Making charge (USD)" },
                 {
                   key: "created_at",
@@ -1713,6 +1680,7 @@ export function Cash() {
               ["Customer refunds", "refunded_usd"],
               ["Expenses", "expenses_usd"],
               ["Withdrawals", "withdrawals_usd"],
+              ["Customer bulk purchases", "customer_purchases_usd"],
               ["Supplier sent", "supplier_sent_usd"],
               ["Supplier received", "supplier_received_usd"],
               ["Net movement", "net_usd"],

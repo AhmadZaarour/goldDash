@@ -1,4 +1,6 @@
-from sqlalchemy import Float, Integer, String
+from decimal import Decimal
+
+from sqlalchemy import Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -23,7 +25,16 @@ class GoldPurity(Base):
         nullable=False,
     )
 
-    purity: Mapped[float] = mapped_column(
-        Float,
+    repayment_factor: Mapped[Decimal] = mapped_column(
+        Numeric(10, 6),
+        nullable=False,
+        default=lambda ctx: {18: Decimal("0.74"), 21: Decimal("0.865"), 24: Decimal(1)}.get(
+            ctx.get_current_parameters()["karat"],
+            Decimal(str(ctx.get_current_parameters()["purity"])) / 100,
+        ),
+    )
+
+    purity: Mapped[Decimal] = mapped_column(
+        Numeric(10, 6),
         nullable=False,
     )

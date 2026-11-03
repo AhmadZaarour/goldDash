@@ -3,18 +3,21 @@
 import asyncio
 import io
 import re
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 from PIL import Image, ImageOps, UnidentifiedImageError
+from sqlalchemy import select
 
 from app.api.v1.inventory_operations import Database
 from app.core.authorization import CashierUser
 from app.core.config import settings
 from app.core.dependencies import CurrentUser
 from app.models.inventoryItem import InventoryItem
+from app.models.photoUpload import PhotoUpload
 from app.schemas.inventory import InventoryItemResponse
 
 router = APIRouter(tags=["Item photos"])
@@ -41,17 +44,56 @@ def save_photo(data: bytes) -> str:
     return filename
 
 
-@router.post("/inventory/items/{item_id}/photo", response_model=InventoryItemResponse)
-async def upload_photo(item_id: int, request: Request, db: Database, user: CashierUser):
-    item = await db.get(InventoryItem, item_id)
-    if item is None:
-        raise HTTPException(404, "Item not found")
+async def receive_photo(request: Request) -> str:
     data = bytearray()
     async for chunk in request.stream():
         data.extend(chunk)
         if len(data) > LIMIT:
             raise HTTPException(413, "Photo must be smaller than 10 MB")
     filename = await asyncio.to_thread(save_photo, bytes(data))
+    return filename
+
+
+@router.post("/purchases/photos", status_code=201)
+async def stage_photo(request: Request, db: Database, user: CashierUser):
+    # Lock expired rows so cleanup cannot race purchase attachment or another cleanup.
+    expired = await db.scalars(
+        select(PhotoUpload)
+        .where(PhotoUpload.inventory_item_id.is_(None), PhotoUpload.expires_at < datetime.now(UTC))
+        .limit(100)
+        .with_for_update(skip_locked=True)
+    )
+    old_files = []
+    for upload in expired:
+        old_files.append(upload.filename)
+        await db.delete(upload)
+    filename = await receive_photo(request)
+    token = uuid4().hex
+    db.add(
+        PhotoUpload(
+            token=token,
+            filename=filename,
+            created_by=user.id,
+            expires_at=datetime.now(UTC) + timedelta(hours=24),
+        )
+    )
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        await asyncio.to_thread((Path(settings.item_image_dir) / filename).unlink, missing_ok=True)
+        raise
+    for old in old_files:
+        await asyncio.to_thread((Path(settings.item_image_dir) / old).unlink, missing_ok=True)
+    return {"token": token, "image_url": f"/api/v1/media/items/{filename}"}
+
+
+@router.post("/inventory/items/{item_id}/photo", response_model=InventoryItemResponse)
+async def upload_photo(item_id: int, request: Request, db: Database, user: CashierUser):
+    item = await db.get(InventoryItem, item_id)
+    if item is None:
+        raise HTTPException(404, "Item not found")
+    filename = await receive_photo(request)
     item.image_url = str(request.url_for("read_item_photo", filename=filename))
     try:
         await db.commit()

@@ -16,6 +16,7 @@ from app.models import GoldPurity, Location, Supplier
 from app.models.cashLedger import CashEntry
 from app.models.inventoryBalance import InventoryBalance
 from app.models.supplierLedger import SupplierLedgerEntry
+from app.services.gold_conversion import canonical_purity, grams24
 from app.services.settlement_resources import available_cash, move_resources
 from app.services.supplier_ledger_service import post_entry, supplier_balance
 from app.services.transaction_validation import require_active_location, require_active_supplier
@@ -33,12 +34,17 @@ class SettlementCreate(BaseModel):
     gold_grams: Decimal = Field(default=Decimal("0"), ge=0, max_digits=14, decimal_places=3)
     making_usd: Decimal = Field(default=Decimal("0"), ge=0, max_digits=14, decimal_places=2)
 
+    cash_gold_usd: Decimal = Field(default=Decimal("0"), ge=0, max_digits=14, decimal_places=2)
+    gold_price_usd: Decimal | None = Field(default=None, gt=0, max_digits=14, decimal_places=4)
+
     @model_validator(mode="after")
     def valid_units(self):
-        if self.gold_grams == 0 and self.making_usd == 0:
+        if self.gold_grams == 0 and self.making_usd == 0 and self.cash_gold_usd == 0:
             raise ValueError("A settlement must contain gold or USD")
         if self.gold_grams and self.purity_id is None:
             raise ValueError("Gold settlements require a purity")
+        if self.cash_gold_usd and self.gold_price_usd is None:
+            raise ValueError("Cash substitution requires USD per 24K-equivalent gram")
         if self.location_id is None:
             raise ValueError("Settlements require a location for cash or gold")
         return self
@@ -47,6 +53,7 @@ class SettlementCreate(BaseModel):
 class SupplierBalanceResponse(BaseModel):
     supplier_id: int
     gold_grams_by_purity: dict[int, Decimal]
+    gold_24k: Decimal
     making_usd: Decimal
     is_settled: bool
 
@@ -101,24 +108,29 @@ async def settle(
         await require_active_supplier(db, supplier_id, exclusive=True)
     except ValueError as error:
         raise HTTPException(409, str(error)) from error
-    if data.purity_id is not None and await db.get(GoldPurity, data.purity_id) is None:
+    physical_purity = await db.get(GoldPurity, data.purity_id) if data.purity_id else None
+    if data.purity_id and physical_purity is None:
         raise HTTPException(404, "Purity not found")
+    canonical = await canonical_purity(db)
+    factor = physical_purity.repayment_factor if physical_purity else Decimal(1)
+    debt_gold = grams24(
+        data.gold_grams * factor
+        + (data.cash_gold_usd / data.gold_price_usd if data.cash_gold_usd else Decimal(0)),
+        Decimal(1),
+    )
+    if not debt_gold and not data.making_usd:
+        raise HTTPException(422, "Settlement is below gold precision")
     sign = -1 if data.direction == "sent" else 1
     key = f"settlement:{supplier_id}:{data.idempotency_key}"
     if await db.scalar(select(SupplierLedgerEntry.id).where(SupplierLedgerEntry.source_key == key)):
         raise HTTPException(409, "Settlement key already used")
     before = await supplier_balance(db, supplier_id)
-    remaining_gold = dict(before["gold_grams_by_purity"])
-    if data.gold_grams:
-        remaining_gold[data.purity_id] = (
-            remaining_gold.get(data.purity_id, Decimal(0)) + sign * data.gold_grams
-        )
     if data.close_account and (
         before["making_usd"] + sign * data.making_usd != 0
-        or any(value != 0 for value in remaining_gold.values())
+        or before["gold_24k"] + sign * debt_gold != 0
     ):
         raise HTTPException(
-            409, "Account can only be settled when USD and every purity balance are zero"
+            409, "Account can only be settled when USD and 24K-equivalent gold are zero"
         )
     try:
         await move_resources(
@@ -127,31 +139,37 @@ async def settle(
             purity_id=data.purity_id,
             placement=data.placement,
             gold_delta=sign * data.gold_grams,
-            cash_delta=sign * data.making_usd,
+            cash_delta=sign * (data.making_usd + data.cash_gold_usd),
         )
     except ValueError as error:
         raise HTTPException(409, str(error)) from error
-    entry = post_entry(
+    entry = await post_entry(
         db,
         supplier_id=supplier_id,
-        purity_id=data.purity_id,
-        gold_grams=sign * data.gold_grams,
+        purity_id=canonical.id,
+        gold_grams=sign * debt_gold,
+        gold_24k=sign * debt_gold,
+        valuation_factor=factor,
         making_usd=sign * data.making_usd,
         source_key=key,
         kind="settlement",
         created_by=user.id,
     )
+    entry.physical_purity_id = data.purity_id
+    entry.physical_gold_grams = sign * data.gold_grams
+    entry.cash_gold_usd = sign * data.cash_gold_usd
+    entry.gold_price_usd = data.gold_price_usd
     entry.location_id = data.location_id
     entry.placement = data.placement if data.gold_grams else None
     try:
-        if data.making_usd:
+        if data.making_usd or data.cash_gold_usd:
             await db.flush()
             db.add(
                 CashEntry(
                     location_id=data.location_id,
                     supplier_entry_id=entry.id,
                     kind=f"supplier_{data.direction}",
-                    amount_usd=sign * data.making_usd,
+                    amount_usd=sign * (data.making_usd + data.cash_gold_usd),
                     created_by=user.id,
                 )
             )
@@ -174,6 +192,12 @@ class LedgerEntryResponse(BaseModel):
     kind: str
     source_key: str
     gold_grams: Decimal
+    gold_24k: Decimal
+    valuation_factor: Decimal
+    physical_purity_id: int | None
+    physical_gold_grams: Decimal | None
+    cash_gold_usd: Decimal | None
+    gold_price_usd: Decimal | None
     making_usd: Decimal
     reversal_of_id: int | None
     note: str | None
@@ -251,10 +275,16 @@ async def reverse_settlement(
             await move_resources(
                 db,
                 location_id=original.location_id,
-                purity_id=original.purity_id,
+                purity_id=original.physical_purity_id or original.purity_id,
                 placement=original.placement,
-                gold_delta=-original.gold_grams if original.placement else Decimal(0),
-                cash_delta=-original.making_usd,
+                gold_delta=-(
+                    original.physical_gold_grams
+                    if original.physical_gold_grams is not None
+                    else original.gold_grams
+                )
+                if original.placement
+                else Decimal(0),
+                cash_delta=-(original.making_usd + (original.cash_gold_usd or Decimal(0))),
             )
         except ValueError as error:
             raise HTTPException(409, str(error)) from error
@@ -264,6 +294,14 @@ async def reverse_settlement(
         source_key=f"reversal:{supplier_id}:{data.idempotency_key}",
         kind="reversal",
         gold_grams=-original.gold_grams,
+        gold_24k=-original.gold_24k,
+        valuation_factor=original.valuation_factor,
+        physical_purity_id=original.physical_purity_id,
+        physical_gold_grams=-original.physical_gold_grams
+        if original.physical_gold_grams is not None
+        else None,
+        cash_gold_usd=-original.cash_gold_usd if original.cash_gold_usd is not None else None,
+        gold_price_usd=original.gold_price_usd,
         making_usd=-original.making_usd,
         reversal_of_id=original.id,
         location_id=original.location_id,

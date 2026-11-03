@@ -14,8 +14,8 @@ RESOURCES = [
     ),
     (
         "goldpurities",
-        {"name": "Fine", "karat": 24, "purity": 99.9},
-        {"name": "Fine", "karat": 22, "purity": 91.6},
+        {"name": "Fine", "karat": 24, "purity": "99.900000"},
+        {"name": "Fine", "karat": 22, "purity": "91.600000"},
     ),
     ("suppliers", {"name": "Supplier", "phone": "123"}, {"phone": "456", "is_active": False}),
     ("customers", {"name": "Customer", "phone": "123"}, {"name": "Customer", "phone": "456"}),

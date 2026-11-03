@@ -74,11 +74,11 @@ async def test_gold_shortage_and_bucket_selection(client, test_session_factory):
 async def test_full_settlement_requires_all_units_zero_and_reopens(client, test_session_factory):
     purchase, purity, url = await account(client, test_session_factory)
     async with test_session_factory() as db:
-        other = GoldPurity(name="22K", karat=22, purity=91.6)
+        other = GoldPurity(name="22K", karat=22, purity=91.6, repayment_factor=Decimal("0.921"))
         db.add(other)
         await db.flush()
         other_id = other.id
-        post_entry(
+        await post_entry(
             db,
             supplier_id=purchase.supplier_id,
             purity_id=other.id,
@@ -130,7 +130,7 @@ async def test_full_settlement_requires_all_units_zero_and_reopens(client, test_
     assert result.status_code == 201, result.text
     assert result.json()["is_settled"] is True
     async with test_session_factory() as db:
-        post_entry(
+        await post_entry(
             db,
             supplier_id=purchase.supplier_id,
             purity_id=purity,

@@ -5,11 +5,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.authorization import AdminUser
+from app.core.authorization import AdminUser, CashierUser
 from app.core.database import get_db
 from app.core.pagination import paginate
 from app.models.purchase import Purchase
 from app.schemas.purchases import (
+    CustomerBulkPurchaseCreate,
     PurchaseCreate,
     PurchaseItemResponse,
     PurchaseResponse,
@@ -18,6 +19,7 @@ from app.schemas.purchases import (
 )
 from app.services.idempotency import IdempotencyKey, claim_operation, complete_operation
 from app.services.purchase_service import (
+    create_customer_bulk_purchase,
     create_item_purchase,
     create_stock_purchase,
     get_purchase,
@@ -100,6 +102,28 @@ async def create_stock_purchase_endpoint(
     result = PurchaseResponse.model_validate(purchase)
     await complete_operation(db, receipt, result)
     return result
+
+
+@router.post("/customer-stock", response_model=PurchaseResponse, status_code=201)
+async def customer_stock_purchase(
+    data: CustomerBulkPurchaseCreate,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    user: CashierUser,
+    idempotency_key: IdempotencyKey,
+):
+    receipt, replayed = await claim_operation(
+        db, user.id, "purchase:customer-stock", idempotency_key, data
+    )
+    if replayed:
+        return PurchaseResponse.model_validate(receipt.response_data)
+    try:
+        purchase = await create_customer_bulk_purchase(db, data, user.id)
+        result = PurchaseResponse.model_validate(purchase)
+        await complete_operation(db, receipt, result)
+        return result
+    except ValueError as error:
+        await db.rollback()
+        raise HTTPException(409, str(error)) from error
 
 
 @router.get(

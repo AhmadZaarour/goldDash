@@ -68,10 +68,10 @@ async def test_purities_are_not_nettted_and_usd_is_separate(client, test_session
     purchase_response = await create_stock_purchase(client, test_session_factory)
     async with test_session_factory() as db:
         purchase = await db.get(Purchase, purchase_response.json()["id"])
-        purity = GoldPurity(name="22K", karat=22, purity=91.6)
+        purity = GoldPurity(name="22K", karat=22, purity=91.6, repayment_factor=Decimal("0.916"))
         db.add(purity)
         await db.flush()
-        post_entry(
+        await post_entry(
             db,
             supplier_id=purchase.supplier_id,
             purity_id=purity.id,
@@ -127,6 +127,7 @@ async def test_invoice_authorship_and_supplier_consistency(client, test_session_
         "supplier_id": purchase.supplier_id,
         "created_by": original_actor,
         "location_id": purchase.location_id,
+        "total_gold_charge_grams": "1",
         "items": [
             {
                 "supplier_id": 2147483647,

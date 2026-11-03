@@ -92,3 +92,20 @@ Reset is disabled by default and remains disabled when `APP_ENVIRONMENT` is
 `production` or `test`, even if `ENABLE_DEV_RESET=true`. Do not enable it against
 business data. This feature does not reset PostgreSQL/Redis services or delete
 `.env` settings. No data is cleared merely by enabling or displaying the button.
+
+## Live prices and converted supplier debt
+
+The dashboard uses authenticated `/api/v1/gold-price`; allow backend HTTPS egress
+to `api.gold-api.com`. Redis coordinates a 30-second quote cache and failure
+cooldown across workers. Provider/cache failures show stale or unavailable prices
+without bypassing the shared cache. Quotes never replace agreed transaction rates.
+
+Apply `uv run alembic upgrade head` before starting this version. This migrates
+purity values to exact decimals, records historical 24K-equivalent debt snapshots,
+and adds purchase/photo/cash fields. Original ledger amounts and item costs remain.
+The frontend and backend purchase contract must be upgraded together. New item
+purchases require `total_gold_charge_grams` equal to their total physical weight.
+
+Supplier repayments support other purities and manually priced cash substitution.
+Cashiers/admins can buy walk-in bulk gold with an immediate drawer payment and no
+customer/supplier identity. See `docs/business-rules.md` for formulas and contracts.

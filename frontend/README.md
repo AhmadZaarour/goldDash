@@ -116,8 +116,8 @@ valuation. Checkout keeps the final selling price blank for explicit entry.
 Overview shows the cached USD gold quote for an ounce and 18K/21K/24K grams,
 including its timestamp and stale status. The browser calls only our API.
 
-Item purchases show one calculated invoice gold-charge total and camera/upload
-controls on each line. Photos are staged, previewed, then attached atomically when
+Item purchases show one calculated invoice gold-charge total, read-only live
+gold prices by piece purity, and camera/upload controls on each line. Photos are staged, previewed, then attached atomically when
 the purchase succeeds. Supplier gold debt is shown in 24K equivalent. The payment
 form separately shows physical gold, cash against gold debt and USD making charges;
 the editable USD-per-24K-gram rate is suggested from a fresh quote once.
@@ -125,3 +125,13 @@ the editable USD-per-24K-gram rate is suggested from a fresh quote once.
 The Purchases screen also offers Customer bulk purchase to admins and cashiers.
 No customer record is required; the total paid leaves the selected drawer and
 bulk weight enters its selected stock bucket together.
+
+Supplier bulk purchase has been removed from Purchases. Supplier purchases are
+item invoices; gold repayments remain in Supplier settlements. Item purchase price
+inputs have been removed: the form previews live prices and the server locks the
+current quote on confirmation. Purchases require a fresh quote; successful retries
+retain the original recorded price.
+
+Customer bulk purchases also accept 0 USD to create opening bulk inventory without
+cash availability, a cash movement or a supplier obligation. The entry is marked
+as opening stock in its stored source.

@@ -2,6 +2,7 @@
 
 import asyncio
 import io
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -290,3 +291,139 @@ async def test_invalid_cash_substitution_and_unfunded_payment_leave_debt_unchang
         )
     ).status_code == 409
     assert (await client.get(url + "/balance")).json() == before
+
+
+async def test_supplier_items_use_one_live_quote_and_invoice_ledger_total(
+    client, test_session_factory, monkeypatch
+):
+    from app.services import purchase_service
+
+    s = await setup_shop(client, test_session_factory)
+    calls = []
+    quote_time = datetime.now(UTC).isoformat()
+
+    async def quote():
+        calls.append(True)
+        return {"gram_24k_usd": "100.5", "fetched_at": quote_time, "stale": False}
+
+    monkeypatch.setattr(purchase_service, "get_quote", quote)
+    body = {
+        "supplier_id": s["supplier"],
+        "location_id": s["location"],
+        "total_gold_charge_grams": "100",
+        "items": [
+            {
+                "supplier_id": s["supplier"],
+                "product_id": s["item18"],
+                "weight": "10",
+                "making_charge": "5",
+                "gold_price_per_gram": "0.0001",
+            }
+            for _ in range(10)
+        ],
+    }
+    headers = {"Idempotency-Key": "ten-pieces"}
+    response = await client.post("/api/v1/purchases/item", json=body, headers=headers)
+    assert response.status_code == 201, response.text
+    assert datetime.fromisoformat(
+        response.json()["gold_quote_at"].replace("Z", "+00:00")
+    ) == datetime.fromisoformat(quote_time)
+    lines = (await client.get(f"/api/v1/purchases/items/{response.json()['id']}")).json()
+    assert len(lines) == 10
+    assert {Decimal(line["gold_price_per_gram"]) for line in lines} == {Decimal("75.7538")}
+    assert (
+        await client.post("/api/v1/purchases/item", json=body, headers=headers)
+    ).json() == response.json()
+    assert len(calls) == 1
+    async with test_session_factory() as db:
+        ledger = list(await db.scalars(select(SupplierLedgerEntry)))
+        assert len(ledger) == 1
+        assert ledger[0].gold_24k == Decimal("75.377")
+        assert ledger[0].making_usd == 50
+        assert await db.scalar(select(func.count()).select_from(InventoryItem)) == 10
+        assert (
+            await db.scalar(
+                select(InventoryBalance.total_weight).where(InventoryBalance.purity_id == s["p18"])
+            )
+            == 100
+        )
+
+
+async def test_mixed_karats_are_priced_from_the_same_quote(client, test_session_factory):
+    s = await setup_shop(client, test_session_factory)
+    response = await client.post("/api/v1/purchases/item", json=invoice(s))
+    assert response.status_code == 201
+    lines = (await client.get(f"/api/v1/purchases/items/{response.json()['id']}")).json()
+    assert [Decimal(line["gold_price_per_gram"]) for line in lines] == [
+        Decimal("75.7538"),
+        Decimal("88.3794"),
+    ]
+
+
+@pytest.mark.parametrize("failure", ["stale", "unavailable"])
+async def test_missing_fresh_quote_cannot_create_invoice(
+    client, test_session_factory, monkeypatch, failure
+):
+    from fastapi import HTTPException
+
+    from app.models.operationReceipt import OperationReceipt
+    from app.services import purchase_service
+
+    s = await setup_shop(client, test_session_factory)
+
+    async def quote():
+        if failure == "unavailable":
+            raise HTTPException(503, "Gold quote unavailable")
+        return {"gram_24k_usd": "100", "fetched_at": datetime.now(UTC).isoformat(), "stale": True}
+
+    monkeypatch.setattr(purchase_service, "get_quote", quote)
+    response = await client.post("/api/v1/purchases/item", json=invoice(s))
+    assert response.status_code == 503
+    async with test_session_factory() as db:
+        for model in [Purchase, InventoryItem, SupplierLedgerEntry, OperationReceipt]:
+            assert await db.scalar(select(func.count()).select_from(model)) == 0
+
+
+async def test_zero_usd_opening_inventory_works_with_empty_drawer_and_retries(
+    client, test_session_factory
+):
+    from sqlalchemy import delete
+
+    from app.models.purchaseStock import PurchaseStock
+
+    s = await setup_shop(client, test_session_factory)
+    async with test_session_factory() as db:
+        await db.execute(delete(CashEntry))
+        await db.execute(delete(InventoryBalance))
+        await db.commit()
+    cashier = await headers_for(test_session_factory, "cashier")
+    headers = {**cashier, "Idempotency-Key": "opening-gold"}
+    body = {
+        "location_id": s["location"],
+        "product_id": s["bulk"],
+        "weight": "12.345",
+        "paid_usd": "0",
+        "placement": "factory",
+        "notes": "Opening stock",
+    }
+    responses = await asyncio.gather(
+        *[
+            client.post("/api/v1/purchases/customer-stock", json=body, headers=headers)
+            for _ in range(2)
+        ]
+    )
+    assert [r.status_code for r in responses] == [201, 201]
+    assert responses[0].json() == responses[1].json()
+    assert responses[0].json()["source"] == "opening"
+    assert Decimal(responses[0].json()["paid_usd"]) == 0
+    async with test_session_factory() as db:
+        assert await db.scalar(select(InventoryBalance.total_weight)) == Decimal("12.345")
+        assert await db.scalar(select(PurchaseStock.cost_per_gram)) == 0
+        assert await db.scalar(select(func.count()).select_from(CashEntry)) == 0
+        assert await db.scalar(select(func.count()).select_from(SupplierLedgerEntry)) == 0
+    negative = await client.post(
+        "/api/v1/purchases/customer-stock",
+        json={**body, "paid_usd": "-1"},
+        headers={**cashier, "Idempotency-Key": "negative"},
+    )
+    assert negative.status_code == 422

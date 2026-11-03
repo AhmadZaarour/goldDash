@@ -10,15 +10,23 @@ pytestmark = pytest.mark.asyncio(loop_scope="session")
     "grams,rate,making,expected",
     [
         ("7.777", "1.0000", "8.25", "71.94"),
-        ("7.777", "0", "0", "0.00"),
+        ("7.777", "100", "0", "777.70"),
     ],
 )
 async def test_purchase_base_cost_is_automatic_and_fixed_through_resale(
-    client, test_session_factory, grams, rate, making, expected
+    client, test_session_factory, monkeypatch, grams, rate, making, expected
 ):
     purchase, lines, _ = await make_purchase(client, test_session_factory)
     data = purchase.json()
     data["supplier_id"] = lines.json()[0]["supplier_id"]
+    from datetime import UTC, datetime
+
+    from app.services import purchase_service
+
+    async def quote():
+        return {"gram_24k_usd": rate, "fetched_at": datetime.now(UTC).isoformat(), "stale": False}
+
+    monkeypatch.setattr(purchase_service, "get_quote", quote)
     response = await client.post(
         "/api/v1/purchases/item",
         json={

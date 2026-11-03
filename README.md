@@ -109,3 +109,13 @@ purchases require `total_gold_charge_grams` equal to their total physical weight
 Supplier repayments support other purities and manually priced cash substitution.
 Cashiers/admins can buy walk-in bulk gold with an immediate drawer payment and no
 customer/supplier identity. See `docs/business-rules.md` for formulas and contracts.
+
+Supplier purchases now accept individual pieces only. Their gold price per gram
+is calculated on confirmation from a fresh cached quote at each piece's purity;
+the quote time and calculated prices are retained. Supplier bulk repayment uses
+the settlement flow. The former supplier bulk purchase POST returns 410, while
+historical invoices remain readable.
+
+For initial bulk balances, enter 0 USD in Customer bulk purchase. This records
+opening stock without requiring drawer cash or creating cash/supplier entries.
+Apply migrations before running this version (`uv run alembic upgrade head`).

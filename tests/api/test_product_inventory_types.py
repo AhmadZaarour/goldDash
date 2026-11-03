@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from app.models.product import Product
 from tests.api.test_locations import test_create_location as create_location
 from tests.api.test_products import test_create_product as create_product
-from tests.api.test_purchase import purchase_payload, purchase_stock_payload
+from tests.api.test_purchase import purchase_payload
 from tests.api.test_suppliers import test_create_supplier as create_supplier
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
@@ -40,25 +40,26 @@ async def test_purchase_path_matches_product_type(client, test_session_factory, 
         client, test_session_factory, inventory_type
     )
     item_payload = purchase_payload(user_id, location_id, supplier_id, product["id"])
-    stock_payload = purchase_stock_payload(user_id, location_id, supplier_id, product["id"])
-    matching_path = "item" if inventory_type == "item" else "stock"
-    wrong_path = "stock" if inventory_type == "item" else "item"
-    payloads = {"item": item_payload, "stock": stock_payload}
-    wrong = await client.post(
-        f"/api/v1/purchases/{wrong_path}",
-        json=payloads[wrong_path],
-        headers={"Idempotency-Key": uuid4().hex},
+    response = await client.post(
+        "/api/v1/purchases/item", json=item_payload, headers={"Idempotency-Key": uuid4().hex}
     )
-    assert wrong.status_code == 409, wrong.text
-    created = await client.post(
-        f"/api/v1/purchases/{matching_path}",
-        json=payloads[matching_path],
-        headers={"Idempotency-Key": uuid4().hex},
-    )
-    assert created.status_code == 201, created.text
+    if inventory_type == "bulk":
+        assert response.status_code == 409
+        # The surviving customer/opening-stock path requires a bulk product.
+        response = await client.post(
+            "/api/v1/purchases/customer-stock",
+            json={
+                "location_id": location_id,
+                "product_id": product["id"],
+                "weight": "2.1",
+                "paid_usd": "0",
+            },
+            headers={"Idempotency-Key": uuid4().hex},
+        )
+    assert response.status_code == 201, response.text
+    opposite = "bulk" if inventory_type == "item" else "item"
     changed = await client.patch(
-        f"/api/v1/products/{product['id']}",
-        json={"inventory_type": wrong_path if wrong_path == "item" else "bulk"},
+        f"/api/v1/products/{product['id']}", json={"inventory_type": opposite}
     )
     assert changed.status_code == 409, changed.text
     assert (await client.get(f"/api/v1/products/{product['id']}")).json()[

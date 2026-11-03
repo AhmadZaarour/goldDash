@@ -154,7 +154,7 @@ async def test_inactive_locations_reject_new_purchases_sales_and_cash_settlement
     assert (
         await client.patch(f"/api/v1/locations/{location_id}", json={"is_active": False})
     ).status_code == 200
-    for kind, payload in [("item", item_payload), ("stock", stock_payload)]:
+    for kind, payload in [("item", item_payload)]:
         response = await client.post(f"/api/v1/purchases/{kind}", json=payload)
         assert response.status_code == 409, response.text
         assert "inactive" in response.json()["detail"]
@@ -195,7 +195,7 @@ async def test_inactive_supplier_rejects_purchases_bulk_sales_and_settlements(
     assert (
         await client.patch(f"/api/v1/suppliers/{supplier_id}", json={"is_active": False})
     ).status_code == 200
-    for kind, payload in [("item", item_payload), ("stock", stock_payload)]:
+    for kind, payload in [("item", item_payload)]:
         assert (await client.post(f"/api/v1/purchases/{kind}", json=payload)).status_code == 409
     async with test_session_factory() as db:
         product = await db.get(Product, stock_payload["item"]["product_id"])

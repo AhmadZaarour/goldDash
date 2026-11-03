@@ -13,9 +13,9 @@ import Decimal from "decimal.js";
 import { DevelopmentReset } from "./development";
 import { ItemCostLabel, SaleItemCost } from "./item-cost";
 import { SupplierSettlement, type SupplierBalance } from "./settlement";
-import { GoldPrice } from "./gold-price";
+import { GoldPrice, useGoldQuote } from "./gold-price";
 import { MonthlyProfitView } from "./profit";
-import { get, request, raw, list, Operation, type Row } from "./api";
+import { all, get, request, raw, list, Operation, type Row } from "./api";
 import { useLanguage } from "./i18n";
 import { useCan, useUser } from "./session";
 import {
@@ -815,12 +815,7 @@ function TradeForm({
   kind,
   done,
 }: {
-  kind:
-    | "itemPurchase"
-    | "bulkPurchase"
-    | "customerBulkPurchase"
-    | "customerSale"
-    | "bulkSale";
+  kind: "itemPurchase" | "customerBulkPurchase" | "customerSale" | "bulkSale";
   done: () => void;
 }) {
   const { t } = useLanguage();
@@ -834,6 +829,37 @@ function TradeForm({
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const op = useRef(new Operation());
+  const quote = useGoldQuote(kind === "itemPurchase");
+  const pricing = useQuery({
+    queryKey: ["list", "purchase-pricing"],
+    queryFn: async () => {
+      const [products, purities] = await Promise.all([
+        all("/products"),
+        all("/goldpurities"),
+      ]);
+      return { products, purities };
+    },
+    enabled: kind === "itemPurchase",
+  });
+  const freshQuote =
+    !!quote.data &&
+    !quote.data.stale &&
+    !quote.isError &&
+    Date.now() - Date.parse(quote.data.fetched_at) < 30_000;
+  function linePrice(productId: unknown) {
+    const p = pricing.data?.products.find(
+      (p) => String(p.id) === String(productId),
+    );
+    const purity = pricing.data?.purities.find((k) => k.id === p?.purity_id);
+    if (!purity || !quote.data) return "—";
+    const factor =
+      Number(purity.karat) === 24
+        ? new Decimal(1)
+        : new Decimal(String(purity.purity)).div("99.5");
+    return new Decimal(quote.data.gram_24k_usd)
+      .times(factor)
+      .toFixed(4, Decimal.ROUND_HALF_UP);
+  }
   const headerFields: Field[] = [
     locationField,
     ...(customerBulk
@@ -857,7 +883,6 @@ function TradeForm({
       ? [
           product("item"),
           amount("weight", "Weight (g)"),
-          amount("gold_price_per_gram", "Gold price / gram"),
           amount("making_charge", "Making charge (USD)"),
           { key: "image_url", label: "Image URL", maxLength: 2048 },
         ]
@@ -874,42 +899,28 @@ function TradeForm({
             amount("weight", "Weight (g)"),
             amount("paid_usd", "Total paid (USD)"),
           ]
-        : kind === "bulkPurchase"
+        : kind === "bulkSale"
           ? [
-              product("bulk"),
-              {
-                key: "stock_for",
-                label: "Placement",
-                type: "select",
-                options: ["factory", "showroom"],
-                required: true,
-              },
+              { ...purity, key: "gold_purity_id" },
               amount("weight", "Weight (g)"),
-              amount("cost_per_gram", "Cost / gram"),
+              amount("gold_charge_in_grams", "Gold charge (g)"),
               amount("making_charge", "Making charge (USD)"),
             ]
-          : kind === "bulkSale"
-            ? [
-                { ...purity, key: "gold_purity_id" },
-                amount("weight", "Weight (g)"),
-                amount("gold_charge_in_grams", "Gold charge (g)"),
-                amount("making_charge", "Making charge (USD)"),
-              ]
-            : [
-                {
-                  key: "inventory_item_id",
-                  label: "Product",
-                  type: "select",
-                  resource: "inventory/items",
-                  required: true,
-                  filter: (r) =>
-                    r.status === "in_stock" &&
-                    String(r.location_id) === String(head.location_id),
-                },
-                amount("gold_price_per_gram", "Gold price / gram"),
-                amount("discount", "Discount (USD)"),
-                amount("sell_price", "Final price (USD)"),
-              ];
+          : [
+              {
+                key: "inventory_item_id",
+                label: "Product",
+                type: "select",
+                resource: "inventory/items",
+                required: true,
+                filter: (r) =>
+                  r.status === "in_stock" &&
+                  String(r.location_id) === String(head.location_id),
+              },
+              amount("gold_price_per_gram", "Gold price / gram"),
+              amount("discount", "Discount (USD)"),
+              amount("sell_price", "Final price (USD)"),
+            ];
   async function addBarcode() {
     setError(undefined);
     if (!head.location_id) {
@@ -1006,6 +1017,29 @@ function TradeForm({
         }}
       />
       {kind === "itemPurchase" && (
+        <>
+          <p>
+            {t(
+              "Item prices are calculated from the live quote when the purchase is confirmed.",
+            )}
+          </p>
+          {quote.data && (
+            <p>
+              {t(freshQuote ? "Latest quote" : "Stale quote")} ·{" "}
+              {date(quote.data.fetched_at)}
+            </p>
+          )}
+          <ErrorBox error={quote.error || pricing.error} />
+        </>
+      )}
+      {customerBulk && (
+        <p>
+          {t(
+            "Enter 0 USD for opening stock. No cash payment or supplier debt is recorded.",
+          )}
+        </p>
+      )}
+      {kind === "itemPurchase" && (
         <p>
           {t("Total gold charge (g)")}:{" "}
           <bdi>
@@ -1070,6 +1104,18 @@ function TradeForm({
               }
             />
             {kind === "itemPurchase" && (
+              <p>
+                {t("Gold price / gram")}:{" "}
+                <output
+                  aria-label={t("Calculated gold price / gram")}
+                  dir="ltr"
+                >
+                  {linePrice(v.product_id)}
+                </output>{" "}
+                USD
+              </p>
+            )}
+            {kind === "itemPurchase" && (
               <PurchasePhoto
                 value={v}
                 disabled={busy || uploading}
@@ -1111,7 +1157,13 @@ function TradeForm({
         <span className="muted small">
           {t("Keep this window open and retry after a connection failure.")}
         </span>
-        <button disabled={busy || uploading}>
+        <button
+          disabled={
+            busy ||
+            uploading ||
+            (kind === "itemPurchase" && (!freshQuote || !pricing.data))
+          }
+        >
           {t(busy ? "Working…" : "Confirm")}
         </button>
       </footer>
@@ -1175,7 +1227,7 @@ function TradeDetail({
           <strong>{date(record.created_at)}</strong>
         </div>
       </div>
-      {purchase && record.source === "customer" && (
+      {purchase && ["customer", "opening"].includes(String(record.source)) && (
         <p>
           {t("Total paid (USD)")}: ${money(record.paid_usd)}
         </p>
@@ -1269,11 +1321,7 @@ export function Trades({ purchase = false }: { purchase?: boolean }) {
   const { t } = useLanguage();
   const can = useCan();
   const [action, setAction] = useState<
-    | "itemPurchase"
-    | "bulkPurchase"
-    | "customerBulkPurchase"
-    | "customerSale"
-    | "bulkSale"
+    "itemPurchase" | "customerBulkPurchase" | "customerSale" | "bulkSale"
   >();
   const [selected, setSelected] = useState<Row>();
   const [loc, setLoc] = useState("");
@@ -1299,14 +1347,12 @@ export function Trades({ purchase = false }: { purchase?: boolean }) {
                 {t(purchase ? "Item purchase" : "Customer sale")}
               </button>
             )}
-            {can.admin && (
+            {!purchase && can.admin && (
               <button
                 className="secondary"
-                onClick={() =>
-                  setAction(purchase ? "bulkPurchase" : "bulkSale")
-                }
+                onClick={() => setAction("bulkSale")}
               >
-                {t(purchase ? "Bulk purchase" : "Supplier bulk sale")}
+                {t("Supplier bulk sale")}
               </button>
             )}
           </div>
@@ -1351,11 +1397,9 @@ export function Trades({ purchase = false }: { purchase?: boolean }) {
               ? "Customer bulk purchase"
               : action === "itemPurchase"
                 ? "Item purchase"
-                : action === "bulkPurchase"
-                  ? "Bulk purchase"
-                  : action === "customerSale"
-                    ? "Customer sale"
-                    : "Supplier bulk sale"
+                : action === "customerSale"
+                  ? "Customer sale"
+                  : "Supplier bulk sale"
           }
           close={() => setAction(undefined)}
         >

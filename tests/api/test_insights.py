@@ -17,7 +17,8 @@ pytestmark = pytest.mark.asyncio(loop_scope="session")
 URL = "/api/v1/insights/monthly-profit"
 
 
-async def customer_sale(client, factory):
+async def customer_sale(client, factory, quote):
+    quote["gram_24k_usd"] = "80"
     purchase, _, inventory = await make_purchase(client, factory)
     async with factory() as db:
         line = await db.scalar(
@@ -65,8 +66,10 @@ async def outflow(client, factory, location, kind, amount, at):
         await db.commit()
 
 
-async def test_monthly_sale_price_margin_and_expenses(client, test_session_factory):
-    sale, _ = await customer_sale(client, test_session_factory)
+async def test_monthly_sale_price_margin_and_expenses(
+    client, test_session_factory, purchase_market_quote
+):
+    sale, _ = await customer_sale(client, test_session_factory, purchase_market_quote)
     await outflow(
         client,
         test_session_factory,
@@ -113,8 +116,10 @@ async def test_monthly_sale_price_margin_and_expenses(client, test_session_facto
     )
 
 
-async def test_returns_and_resale_are_accounted_in_their_own_month(client, test_session_factory):
-    sale, inventory_id = await customer_sale(client, test_session_factory)
+async def test_returns_and_resale_are_accounted_in_their_own_month(
+    client, test_session_factory, purchase_market_quote
+):
+    sale, inventory_id = await customer_sale(client, test_session_factory, purchase_market_quote)
     other = (await make_location(client)).json()["id"]
     async with test_session_factory() as db:
         line = await db.scalar(select(SaleItem).where(SaleItem.sale_id == sale.id))
@@ -137,6 +142,7 @@ async def test_returns_and_resale_are_accounted_in_their_own_month(client, test_
     assert Decimal(may["net_profit_usd"]) == -15
     april = (await client.get(URL, params={"month": "2026-04"})).json()
     assert Decimal(april["net_profit_usd"]) == 35
+    purchase_market_quote["gram_24k_usd"] = "90"
     result = await client.post(
         "/api/v1/sales/item",
         json={
@@ -163,10 +169,10 @@ async def test_returns_and_resale_are_accounted_in_their_own_month(client, test_
 
 
 async def test_calendar_timezone_boundaries_and_invalid_month(
-    client, test_session_factory, monkeypatch
+    client, test_session_factory, monkeypatch, purchase_market_quote
 ):
     monkeypatch.setattr(settings, "report_timezone", "Asia/Beirut")
-    sale, _ = await customer_sale(client, test_session_factory)
+    sale, _ = await customer_sale(client, test_session_factory, purchase_market_quote)
     async with test_session_factory() as db:
         row = await db.get(Sale, sale.id)
         row.created_at = datetime(2026, 3, 31, 21, tzinfo=UTC)  # April 1 in Beirut.

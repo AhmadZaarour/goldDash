@@ -83,8 +83,6 @@ try {
     .selectOption({ label: "Classic ring · RING-01" });
   for (const [label, value] of [
     ["Weight (g)", "2.5"],
-    ["Gold price / gram", "70"],
-    ["Gold charge (g)", "2.5"],
     ["Making charge (USD)", "8.60"],
   ])
     await page.getByLabel(label, { exact: true }).fill(value);
@@ -113,7 +111,6 @@ try {
   await page
     .getByLabel("Product", { exact: true })
     .selectOption({ label: "Classic ring · RING-01" });
-  await page.getByLabel("Gold price / gram", { exact: true }).fill("100");
   await page.getByLabel("Discount (USD)", { exact: true }).fill("5");
   await page.getByLabel("Final price (USD)", { exact: true }).fill("125.25");
   const saleResponse = page.waitForResponse(

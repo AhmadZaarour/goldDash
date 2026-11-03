@@ -74,6 +74,7 @@ class PurchaseStockUpdate(BaseModel):
 
 
 class PurchaseStockResponse(BaseModel):
+    gold_price_per_gram: Decimal | None = None
     model_config = ConfigDict(from_attributes=True)
 
     id: int

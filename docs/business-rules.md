@@ -394,3 +394,45 @@ resale. Inventory lists/details and each selected customer-sale line show weight
 and base cost for pricing reference. The final selling price remains explicitly
 entered by the cashier. Monthly profit continues to use the sale-time gold
 valuation selected for that report; this purchase-cost label does not change it.
+
+## Live per-gram rates on every new trade
+
+All supported purchases and sales now use the same server-side market calculation.
+One fresh quote is used for an entire invoice, with USD per physical gram rounded
+to four decimal places, half up:
+
+| Purity | USD per gram |
+| --- | --- |
+| 24K | ounce USD / 31.1 |
+| 21K | (ounce USD / 31.1) × 0.875 / 0.995 |
+| 18K | (ounce USD / 31.1) × 0.75 / 0.995 |
+
+Configured purity percentages drive the non-24K factors. Commercial repayment
+factors (0.74 and 0.865) remain separate; they are never market-price factors.
+All flows share the existing 30-second Redis cache and failure cooldown.
+
+- Supplier item purchases retain their automatic line rates and invoice quote time.
+- Customer bulk purchases and zero-USD opening stock record market
+  `gold_price_per_gram` on the stock line and `gold_quote_at` on the invoice.
+  `cost_per_gram` remains actual USD paid / physical weight. The market rate does
+  not overwrite `paid_usd`, create additional cash movements, or create debt.
+- Customer item sales no longer accept an input gram rate. Each line gets its
+  inventory piece's purity rate from the sale's one quote. `sell_price` and
+  informational `discount` remain manually entered; the cash receipt uses the
+  sum of entered final prices. Monthly profit uses the recorded sale-time rates.
+- Supplier bulk sales record `gold_price_per_gram` on the stock sale line and
+  `gold_quote_at` on the invoice. Stock movements, gold obligations and entered
+  making charges retain their existing behavior; the quote does not create a
+  cash receipt or convert the gold obligation to USD.
+
+The forms show read-only live previews. The server snapshots the current quote on
+confirmation and ignores client-provided gram-rate overrides. Stale/unavailable
+quotes reject the new trade atomically, including opening stock; no partial
+invoice, stock, sale, cash or ledger changes persist. Successful purchase retries
+return the original recorded rate without fetching a new quote.
+
+Completed purchases/sales, returns and reports never recalculate against current
+quotes. New nullable bulk-rate/timestamp columns leave historical missing market
+rates null rather than infer them from paid cost or today's quote. Existing item
+purchase/sale prices are preserved. Retired supplier bulk-purchase endpoints remain
+retired, with their history readable.

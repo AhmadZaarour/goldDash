@@ -6,7 +6,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class SaleLineCreate(BaseModel):
     inventory_item_id: int
-    gold_price_per_gram: Decimal = Field(ge=0, decimal_places=4, max_digits=14)
     discount: Decimal = Field(ge=0, decimal_places=2, max_digits=14)
     sell_price: Decimal = Field(ge=0, decimal_places=2, max_digits=14)
 
@@ -39,6 +38,7 @@ class SaleStockCreate(BaseModel):
 
 
 class SaleStockResponse(BaseModel):
+    gold_price_per_gram: Decimal | None = None
     model_config = ConfigDict(from_attributes=True)
 
     id: int
@@ -51,6 +51,7 @@ class SaleStockResponse(BaseModel):
 
 
 class SaleResponse(BaseModel):
+    gold_quote_at: datetime | None = None
     customer_id: int | None = None
     model_config = ConfigDict(from_attributes=True)
 

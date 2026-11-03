@@ -1,9 +1,11 @@
+from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.cashLedger import CashEntry
+from app.models.goldPurities import GoldPurity
 from app.models.inventoryBalance import InventoryBalance
 from app.models.inventoryItem import InventoryItem
 from app.models.saleItem import SaleItem
@@ -19,6 +21,7 @@ from app.schemas.sales import (
     SaleCreate,
     SaleStockCreate,
 )
+from app.services.gold_price import get_quote, price_per_gram, require_fresh_quote
 from app.services.inventory_service import (
     create_movement,
 )
@@ -38,7 +41,12 @@ async def create_item_sale(
     except Exception:
         await db.rollback()
         raise
-    sale = Sale(**sale_data.model_dump(exclude={"items"}, exclude_none=True))
+    quote = await get_quote()
+    require_fresh_quote(quote)
+    sale = Sale(
+        **sale_data.model_dump(exclude={"items"}, exclude_none=True),
+        gold_quote_at=datetime.fromisoformat(quote["fetched_at"]),
+    )
     db.add(sale)
 
     try:
@@ -55,6 +63,8 @@ async def create_item_sale(
             .with_for_update(of=InventoryItem)
         )
         items = {item.id: item for item in locked}
+        purity_ids = {item.purchase_item.product.purity_id for item in items.values()}
+        purities = {id: await db.get(GoldPurity, id) for id in sorted(purity_ids)}
         for line in sale_data.items:
             item = items.get(line.inventory_item_id)
             if item is None:
@@ -67,7 +77,9 @@ async def create_item_sale(
                 SaleItem(
                     sale_id=sale.id,
                     inventory_item_id=item.id,
-                    gold_price_per_gram=line.gold_price_per_gram,
+                    gold_price_per_gram=price_per_gram(
+                        quote, purities[item.purchase_item.product.purity_id]
+                    ),
                     discount=line.discount,
                     sell_price=line.sell_price,
                 )
@@ -111,7 +123,15 @@ async def create_stock_sale(
     except Exception:
         await db.rollback()
         raise
-    sale = Sale(**sale_data.model_dump(exclude={"item"}, exclude_none=True))
+    purity = await db.get(GoldPurity, sale_data.item.gold_purity_id)
+    if purity is None:
+        raise ValueError("Purity not found")
+    quote = await get_quote()
+    require_fresh_quote(quote)
+    sale = Sale(
+        **sale_data.model_dump(exclude={"item"}, exclude_none=True),
+        gold_quote_at=datetime.fromisoformat(quote["fetched_at"]),
+    )
     db.add(sale)
     try:
         await db.flush()
@@ -121,6 +141,7 @@ async def create_stock_sale(
             supplier_id=sale_data.item.supplier_id,
             gold_purity_id=sale_data.item.gold_purity_id,
             weight=sale_data.item.weight,
+            gold_price_per_gram=price_per_gram(quote, purity),
             gold_charge_in_grams=sale_data.item.gold_charge_in_grams,
             making_charge=sale_data.item.making_charge,
         )

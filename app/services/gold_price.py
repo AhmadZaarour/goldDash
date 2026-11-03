@@ -2,13 +2,14 @@
 
 import json
 from datetime import UTC, datetime
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 import httpx
 from fastapi import HTTPException
 from redis.exceptions import RedisError
 
 from app.core.redis import redis
+from app.services.gold_conversion import purchase_factor
 
 QUOTE_KEY = "gold:quote:v1"
 COOLDOWN_KEY = "gold:attempt:v1"
@@ -57,3 +58,17 @@ async def get_quote():
     except RedisError as error:
         # Fail closed rather than make uncoordinated calls when shared cache fails.
         raise HTTPException(503, "Gold price cache unavailable") from error
+
+
+def require_fresh_quote(quote: dict) -> None:
+    if quote["stale"]:
+        raise HTTPException(
+            503, "A fresh gold quote is required to price this trade. Try again after 30 seconds."
+        )
+
+
+def price_per_gram(quote: dict, purity) -> Decimal:
+    """USD per physical gram, rounded once for the permanent trade snapshot."""
+    return (Decimal(quote["gram_24k_usd"]) * purchase_factor(purity)).quantize(
+        Decimal("0.0001"), rounding=ROUND_HALF_UP
+    )

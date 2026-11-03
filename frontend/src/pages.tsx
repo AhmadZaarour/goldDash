@@ -13,7 +13,12 @@ import Decimal from "decimal.js";
 import { DevelopmentReset } from "./development";
 import { ItemCostLabel, SaleItemCost } from "./item-cost";
 import { SupplierSettlement, type SupplierBalance } from "./settlement";
-import { GoldPrice, useGoldQuote } from "./gold-price";
+import {
+  GoldPrice,
+  useGoldQuote,
+  gramPrice,
+  type GoldQuote,
+} from "./gold-price";
 import { MonthlyProfitView } from "./profit";
 import { all, get, request, raw, list, Operation, type Row } from "./api";
 import { useLanguage } from "./i18n";
@@ -811,6 +816,41 @@ function PurchasePhoto({
   );
 }
 
+function ReadOnlyGoldPrice({ price }: { price: string }) {
+  const { t } = useLanguage();
+  return (
+    <p>
+      {t("Gold price / gram")}:{" "}
+      <output aria-label={t("Calculated gold price / gram")} dir="ltr">
+        {price}
+      </output>{" "}
+      USD
+    </p>
+  );
+}
+function SaleLivePrice({
+  itemId,
+  quote,
+  purities,
+}: {
+  itemId: string;
+  quote: GoldQuote | undefined;
+  purities: Row[];
+}) {
+  const item = useQuery({
+    queryKey: ["list", "item-cost", itemId],
+    queryFn: () => get<Row>(`/inventory/items/${itemId}`),
+  });
+  return (
+    <ReadOnlyGoldPrice
+      price={gramPrice(
+        quote,
+        purities.find((p) => p.id === item.data?.purity_id),
+      )}
+    />
+  );
+}
+
 function TradeForm({
   kind,
   done,
@@ -829,7 +869,7 @@ function TradeForm({
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const op = useRef(new Operation());
-  const quote = useGoldQuote(kind === "itemPurchase");
+  const quote = useGoldQuote();
   const pricing = useQuery({
     queryKey: ["list", "purchase-pricing"],
     queryFn: async () => {
@@ -839,7 +879,6 @@ function TradeForm({
       ]);
       return { products, purities };
     },
-    enabled: kind === "itemPurchase",
   });
   const freshQuote =
     !!quote.data &&
@@ -850,16 +889,12 @@ function TradeForm({
     const p = pricing.data?.products.find(
       (p) => String(p.id) === String(productId),
     );
-    const purity = pricing.data?.purities.find((k) => k.id === p?.purity_id);
-    if (!purity || !quote.data) return "—";
-    const factor =
-      Number(purity.karat) === 24
-        ? new Decimal(1)
-        : new Decimal(String(purity.purity)).div("99.5");
-    return new Decimal(quote.data.gram_24k_usd)
-      .times(factor)
-      .toFixed(4, Decimal.ROUND_HALF_UP);
+    return gramPrice(
+      quote.data,
+      pricing.data?.purities.find((k) => k.id === p?.purity_id),
+    );
   }
+
   const headerFields: Field[] = [
     locationField,
     ...(customerBulk
@@ -917,7 +952,6 @@ function TradeForm({
                   r.status === "in_stock" &&
                   String(r.location_id) === String(head.location_id),
               },
-              amount("gold_price_per_gram", "Gold price / gram"),
               amount("discount", "Discount (USD)"),
               amount("sell_price", "Final price (USD)"),
             ];
@@ -940,7 +974,6 @@ function TradeForm({
       if (lines.some((l) => l.inventory_item_id === id)) return;
       const next = {
         inventory_item_id: id,
-        gold_price_per_gram: "",
         discount: "0",
         sell_price: "",
       };
@@ -1016,11 +1049,11 @@ function TradeForm({
           setHead(v);
         }}
       />
-      {kind === "itemPurchase" && (
+      {
         <>
           <p>
             {t(
-              "Item prices are calculated from the live quote when the purchase is confirmed.",
+              "Gold prices are calculated from the live quote when the trade is confirmed.",
             )}
           </p>
           {quote.data && (
@@ -1031,7 +1064,7 @@ function TradeForm({
           )}
           <ErrorBox error={quote.error || pricing.error} />
         </>
-      )}
+      }
       {customerBulk && (
         <p>
           {t(
@@ -1103,17 +1136,25 @@ function TradeForm({
                 setLines(lines.map((x, j) => (j === i ? next : x)))
               }
             />
-            {kind === "itemPurchase" && (
-              <p>
-                {t("Gold price / gram")}:{" "}
-                <output
-                  aria-label={t("Calculated gold price / gram")}
-                  dir="ltr"
-                >
-                  {linePrice(v.product_id)}
-                </output>{" "}
-                USD
-              </p>
+            {(kind === "itemPurchase" || customerBulk) && (
+              <ReadOnlyGoldPrice price={linePrice(v.product_id)} />
+            )}
+            {kind === "bulkSale" && (
+              <ReadOnlyGoldPrice
+                price={gramPrice(
+                  quote.data,
+                  pricing.data?.purities.find(
+                    (p) => String(p.id) === String(v.gold_purity_id),
+                  ),
+                )}
+              />
+            )}
+            {kind === "customerSale" && v.inventory_item_id && (
+              <SaleLivePrice
+                itemId={String(v.inventory_item_id)}
+                quote={quote.data}
+                purities={pricing.data?.purities || []}
+              />
             )}
             {kind === "itemPurchase" && (
               <PurchasePhoto
@@ -1157,13 +1198,7 @@ function TradeForm({
         <span className="muted small">
           {t("Keep this window open and retry after a connection failure.")}
         </span>
-        <button
-          disabled={
-            busy ||
-            uploading ||
-            (kind === "itemPurchase" && (!freshQuote || !pricing.data))
-          }
-        >
+        <button disabled={busy || uploading || !freshQuote || !pricing.data}>
           {t(busy ? "Working…" : "Confirm")}
         </button>
       </footer>
@@ -1249,6 +1284,8 @@ function TradeDetail({
                       "inventory_item_id",
                       "weight",
                       "gold_charge_in_grams",
+                      "gold_price_per_gram",
+                      "cost_per_gram",
                       "making_charge",
                       "sell_price",
                       "refund_usd",
@@ -1265,6 +1302,8 @@ function TradeDetail({
                             inventory_item_id: "Items",
                             weight: "Weight (g)",
                             gold_charge_in_grams: "Gold charge (g)",
+                            gold_price_per_gram: "Gold price / gram",
+                            cost_per_gram: "Cost / gram",
                             making_charge: "Making charge (USD)",
                             sell_price: "Final price (USD)",
                             refund_usd: "Refund (USD)",

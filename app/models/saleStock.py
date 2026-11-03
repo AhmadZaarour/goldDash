@@ -25,6 +25,8 @@ class SaleStock(Base):
 
     gold_purity_id: Mapped[int] = mapped_column(ForeignKey("goldPurities.id"))
 
+    gold_price_per_gram: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
+
     weight: Mapped[Decimal] = mapped_column(
         Numeric(14, 3),
     )

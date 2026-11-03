@@ -33,6 +33,8 @@ class Sale(Base):
         nullable=False,
     )
 
+    gold_quote_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
     customer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.id"))
 
     location_id: Mapped[int] = mapped_column(

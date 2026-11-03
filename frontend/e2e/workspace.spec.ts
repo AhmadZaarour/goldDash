@@ -68,6 +68,7 @@ async function api(page: Page, role = "admin") {
         id: 1,
         barcode: "GI1234567890ABCDEF",
         product_name: "Classic gold ring",
+        purity_id: 1,
         weight: "2.500",
         base_cost_usd: "165.00",
         status: "in_stock",
@@ -446,6 +447,12 @@ test("piece cost reference in inventory and customer checkout", async ({
   await expect(reference.getByText("$165.00", { exact: true })).toBeVisible();
   await expect(reference.getByText("2.500 g", { exact: true })).toBeVisible();
   await expect(
+    dialog.getByLabel("Gold price / gram", { exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    dialog.getByLabel("Calculated gold price / gram", { exact: true }),
+  ).toHaveText("100.0000");
+  await expect(
     dialog.getByLabel("Final price (USD)", { exact: true }),
   ).toHaveValue("");
   await reference.scrollIntoViewIfNeeded();
@@ -506,6 +513,9 @@ test("live gold dashboard and cashier walk-in bulk purchase", async ({
   await dialog.getByLabel("Product", { exact: true }).selectOption("2");
   await dialog.getByLabel("Placement", { exact: true }).selectOption("factory");
   await dialog.getByLabel("Weight (g)", { exact: true }).fill("5");
+  await expect(
+    dialog.getByLabel("Calculated gold price / gram", { exact: true }),
+  ).toHaveText("100.0000");
   await dialog.getByLabel("Total paid (USD)", { exact: true }).fill("250");
   await dialog.getByRole("button", { name: "Confirm", exact: true }).click();
   await expect(dialog).toHaveCount(0);
@@ -629,4 +639,27 @@ test("item purchase uses one invoice gold charge and offers camera upload", asyn
   expect((submitted?.items as Record<string, unknown>[])[0]).not.toHaveProperty(
     "gold_charge_in_grams",
   );
+});
+
+test("supplier bulk sale previews its live rate and keeps making charges editable", async ({
+  page,
+}) => {
+  await api(page);
+  await login(page);
+  await navigate(page, "Sales");
+  await page
+    .getByRole("button", { name: "Supplier bulk sale", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Purity", { exact: true }).selectOption("1");
+  await expect(
+    dialog.getByLabel("Calculated gold price / gram", { exact: true }),
+  ).toHaveText("100.0000");
+  await expect(
+    dialog.getByLabel("Gold price / gram", { exact: true }),
+  ).toHaveCount(0);
+  await dialog.getByLabel("Making charge (USD)", { exact: true }).fill("9.25");
+  await expect(
+    dialog.getByLabel("Making charge (USD)", { exact: true }),
+  ).toHaveValue("9.25");
 });

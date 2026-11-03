@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { get } from "./api";
+import Decimal from "decimal.js";
+import { get, type Row } from "./api";
 import { useLanguage } from "./i18n";
 import { Busy, ErrorBox, money, date } from "./ui";
 
@@ -57,4 +58,18 @@ export function GoldPrice() {
       )}
     </section>
   );
+}
+
+export function gramPrice(
+  quote: GoldQuote | undefined,
+  purity: Row | undefined,
+) {
+  if (!quote || !purity) return "—";
+  const factor =
+    Number(purity.karat) === 24
+      ? new Decimal(1)
+      : new Decimal(String(purity.purity)).div("99.5");
+  return new Decimal(quote.gram_24k_usd)
+    .times(factor)
+    .toFixed(4, Decimal.ROUND_HALF_UP);
 }

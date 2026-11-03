@@ -1,7 +1,6 @@
 from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal
 
-from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,7 +22,7 @@ from app.schemas.purchases import (
     PurchaseStockCreate,
 )
 from app.services.gold_conversion import allocate_charge, canonical_purity, grams24, purchase_factor
-from app.services.gold_price import get_quote
+from app.services.gold_price import get_quote, price_per_gram, require_fresh_quote
 from app.services.inventory_service import (
     create_item,
     create_movement,
@@ -64,12 +63,7 @@ async def create_item_purchase(
     debt = grams24(fine_total, Decimal(1))
     canonical = await canonical_purity(db)
     quote = await get_quote()
-    if quote["stale"]:
-        raise HTTPException(
-            503,
-            "A fresh gold quote is required to price this purchase. Try again after 30 seconds.",
-        )
-    price24 = Decimal(quote["gram_24k_usd"])
+    require_fresh_quote(quote)
     purchase = Purchase(
         **purchase_data.model_dump(exclude={"items"}, exclude_none=True),
         gold_debt_24k=debt,
@@ -89,8 +83,8 @@ async def create_item_purchase(
                 product_id=line.product_id,
                 weight=line.weight,
                 valuation_factor=factors[index],
-                gold_price_per_gram=(price24 * factors[index]).quantize(
-                    Decimal("0.0001"), rounding=ROUND_HALF_UP
+                gold_price_per_gram=price_per_gram(
+                    quote, purities[products[line.product_id].purity_id]
                 ),
                 gold_charge_in_grams=charge,
                 making_charge=line.making_charge,
@@ -275,6 +269,9 @@ async def create_customer_bulk_purchase(db, data, user_id):
     product = await validate_purchase_product(db, data.product_id, "bulk")
     if data.paid_usd and await available_cash(db, data.location_id) < data.paid_usd:
         raise ValueError("Insufficient cash in the selected drawer")
+    purity = await db.get(GoldPurity, product.purity_id)
+    quote = await get_quote()
+    require_fresh_quote(quote)
     purchase = Purchase(
         source="customer" if data.paid_usd else "opening",
         supplier_id=None,
@@ -284,6 +281,7 @@ async def create_customer_bulk_purchase(db, data, user_id):
         created_by=user_id,
         created_at=datetime.now(UTC),
         paid_usd=data.paid_usd,
+        gold_quote_at=datetime.fromisoformat(quote["fetched_at"]),
     )
     db.add(purchase)
     await db.flush()
@@ -292,6 +290,7 @@ async def create_customer_bulk_purchase(db, data, user_id):
         product_id=data.product_id,
         stock_for=data.placement,
         weight=data.weight,
+        gold_price_per_gram=price_per_gram(quote, purity),
         cost_per_gram=(data.paid_usd / data.weight).quantize(
             Decimal("0.0001"), rounding=ROUND_HALF_UP
         ),

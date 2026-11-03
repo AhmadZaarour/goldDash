@@ -135,3 +135,11 @@ retain the original recorded price.
 Customer bulk purchases also accept 0 USD to create opening bulk inventory without
 cash availability, a cash movement or a supplier obligation. The entry is marked
 as opening stock in its stored source.
+
+All four supported trade forms now show automatically calculated, read-only gold
+prices by purity: supplier item purchases, customer bulk/opening-stock purchases,
+customer item sales and supplier bulk sales. Payment totals and final selling
+prices stay manual. Bulk purchase cost per gram still means actual payment divided
+by weight; its separate gold-rate snapshot is the market reference. Every new
+trade requires a fresh quote, while completed records and returns retain their
+original prices. Trade details display recorded per-gram prices.

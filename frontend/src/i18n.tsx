@@ -6,8 +6,8 @@ import {
   type ReactNode,
 } from "react";
 const ar: Record<string, string> = {
-  "Item prices are calculated from the live quote when the purchase is confirmed.":
-    "تُحسب أسعار القطع من سعر الذهب المباشر عند تأكيد الشراء.",
+  "Gold prices are calculated from the live quote when the trade is confirmed.":
+    "تُحسب أسعار الذهب من السعر المباشر عند تأكيد العملية.",
   "Enter 0 USD for opening stock. No cash payment or supplier debt is recorded.":
     "أدخل 0 دولار للمخزون الافتتاحي. لا تُسجَّل دفعة نقدية أو مديونية للمورد.",
   "Calculated gold price / gram": "سعر الذهب المحسوب للغرام",

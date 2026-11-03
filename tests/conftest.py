@@ -22,7 +22,7 @@ from app.core.database import Base, get_db
 from app.core.security import create_access_token, hash_password
 from app.main import app
 from app.models.user import User
-from app.services import purchase_service, session_service
+from app.services import purchase_service, sale_service, session_service
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -119,14 +119,17 @@ async def isolate_test_state(
 
 @pytest_asyncio.fixture(autouse=True, loop_scope="session")
 async def purchase_market_quote(monkeypatch):
+    values = {"gram_24k_usd": "100.5", "stale": False}
+
     async def quote():
         return {
-            "gram_24k_usd": "100.5",
+            **values,
             "fetched_at": datetime.now(UTC).isoformat(),
-            "stale": False,
         }
 
     monkeypatch.setattr(purchase_service, "get_quote", quote)
+    monkeypatch.setattr(sale_service, "get_quote", quote)
+    return values
 
 
 @pytest_asyncio.fixture(loop_scope="session")

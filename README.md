@@ -119,3 +119,9 @@ historical invoices remain readable.
 For initial bulk balances, enter 0 USD in Customer bulk purchase. This records
 opening stock without requiring drawer cash or creating cash/supplier entries.
 Apply migrations before running this version (`uv run alembic upgrade head`).
+
+Automatic per-gram market rates now cover customer sales, customer bulk purchases
+(including opening stock) and supplier bulk sales as well as supplier item invoices.
+Actual payment/final selling totals stay manual. All new trades require a fresh
+shared quote; completed records retain their prices. Run `uv run alembic upgrade head`
+to add the bulk market-rate snapshots and sale quote timestamps before starting.

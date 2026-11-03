@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal
 
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +23,7 @@ from app.schemas.purchases import (
     PurchaseStockCreate,
 )
 from app.services.gold_conversion import allocate_charge, canonical_purity, grams24, purchase_factor
+from app.services.gold_price import get_quote
 from app.services.inventory_service import (
     create_item,
     create_movement,
@@ -61,8 +63,17 @@ async def create_item_purchase(
     fine_total = sum(fine, Decimal(0))
     debt = grams24(fine_total, Decimal(1))
     canonical = await canonical_purity(db)
+    quote = await get_quote()
+    if quote["stale"]:
+        raise HTTPException(
+            503,
+            "A fresh gold quote is required to price this purchase. Try again after 30 seconds.",
+        )
+    price24 = Decimal(quote["gram_24k_usd"])
     purchase = Purchase(
-        **purchase_data.model_dump(exclude={"items"}, exclude_none=True), gold_debt_24k=debt
+        **purchase_data.model_dump(exclude={"items"}, exclude_none=True),
+        gold_debt_24k=debt,
+        gold_quote_at=datetime.fromisoformat(quote["fetched_at"]),
     )
     db.add(purchase)
 
@@ -78,7 +89,9 @@ async def create_item_purchase(
                 product_id=line.product_id,
                 weight=line.weight,
                 valuation_factor=factors[index],
-                gold_price_per_gram=line.gold_price_per_gram,
+                gold_price_per_gram=(price24 * factors[index]).quantize(
+                    Decimal("0.0001"), rounding=ROUND_HALF_UP
+                ),
                 gold_charge_in_grams=charge,
                 making_charge=line.making_charge,
             )
@@ -151,6 +164,7 @@ async def create_stock_purchase(
     *,
     commit: bool = True,
 ) -> Purchase:
+    """Create legacy bulk invoices; new supplier bulk purchases are retired."""
     try:
         await require_active_location(db, purchase_data.location_id)
         await require_active_supplier(db, purchase_data.supplier_id)
@@ -259,10 +273,10 @@ async def get_purchase_stock(
 async def create_customer_bulk_purchase(db, data, user_id):
     await require_active_location(db, data.location_id, exclusive=True)
     product = await validate_purchase_product(db, data.product_id, "bulk")
-    if await available_cash(db, data.location_id) < data.paid_usd:
+    if data.paid_usd and await available_cash(db, data.location_id) < data.paid_usd:
         raise ValueError("Insufficient cash in the selected drawer")
     purchase = Purchase(
-        source="customer",
+        source="customer" if data.paid_usd else "opening",
         supplier_id=None,
         location_id=data.location_id,
         invoice_number=data.invoice_number,
@@ -297,15 +311,16 @@ async def create_customer_bulk_purchase(db, data, user_id):
             set_={"total_weight": InventoryBalance.total_weight + statement.excluded.total_weight},
         )
     )
-    db.add(
-        CashEntry(
-            purchase_id=purchase.id,
-            location_id=data.location_id,
-            kind="customer_purchase",
-            amount_usd=-data.paid_usd,
-            created_by=user_id,
-            description="Walk-in customer bulk purchase",
+    if data.paid_usd:
+        db.add(
+            CashEntry(
+                purchase_id=purchase.id,
+                location_id=data.location_id,
+                kind="customer_purchase",
+                amount_usd=-data.paid_usd,
+                created_by=user_id,
+                description="Walk-in customer bulk purchase",
+            )
         )
-    )
     await db.flush()
     return purchase

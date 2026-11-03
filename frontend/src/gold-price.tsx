@@ -11,10 +11,11 @@ export interface GoldQuote {
   fetched_at: string;
   stale: boolean;
 }
-export function useGoldQuote() {
+export function useGoldQuote(enabled = true) {
   return useQuery({
     queryKey: ["gold-price"],
     queryFn: () => get<GoldQuote>("/gold-price"),
+    enabled,
     staleTime: 30_000,
     refetchInterval: 30_000,
   });

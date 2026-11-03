@@ -37,6 +37,7 @@ class Purchase(Base):
     source: Mapped[str] = mapped_column(String(20), nullable=False, server_default="supplier")
     total_gold_charge_grams: Mapped[Decimal | None] = mapped_column(Numeric(14, 3))
     gold_debt_24k: Mapped[Decimal | None] = mapped_column(Numeric(20, 6))
+    gold_quote_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     paid_usd: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
 
     supplier_id: Mapped[int | None] = mapped_column(ForeignKey("suppliers.id"))

@@ -124,7 +124,7 @@ async def test_new_operations_require_idempotency_header(client, test_session_fa
     ) as raw:
         for path in [
             "/api/v1/purchases/item",
-            "/api/v1/purchases/stock",
+            "/api/v1/purchases/customer-stock",
             "/api/v1/inventory/stocks/transfer",
         ]:
             response = await raw.post(path, json=payload)
@@ -132,36 +132,21 @@ async def test_new_operations_require_idempotency_header(client, test_session_fa
             assert any(e["loc"] == ["header", "Idempotency-Key"] for e in response.json()["detail"])
 
 
-async def test_bulk_purchase_retry_preserves_single_balance_increment(client, test_session_factory):
-    from app.models import PurchaseStock
-
+async def test_supplier_bulk_purchase_is_retired_without_mutation(client, test_session_factory):
     existing = await create_stock_purchase(client, test_session_factory)
     async with test_session_factory() as db:
-        invoice = await db.get(Purchase, existing.json()["id"])
-        stock = await db.scalar(
-            select(PurchaseStock).where(PurchaseStock.purchase_id == invoice.id)
-        )
-        payload = {
-            "supplier_id": invoice.supplier_id,
-            "location_id": invoice.location_id,
-            "item": {
-                "product_id": stock.product_id,
-                "stock_for": "factory",
-                "weight": "2.600",
-                "cost_per_gram": "55.05",
-            },
-        }
-    headers = {"Idempotency-Key": "bulk-purchase-retry"}
+        before = await db.scalar(select(func.sum(InventoryBalance.total_weight)))
+        before_ledger = await db.scalar(select(func.count()).select_from(SupplierLedgerEntry))
     responses = await asyncio.gather(
-        *[client.post("/api/v1/purchases/stock", json=payload, headers=headers) for _ in range(2)]
+        *[
+            client.post("/api/v1/purchases/stock", json={}, headers={"Idempotency-Key": "retired"})
+            for _ in range(2)
+        ]
     )
-    assert [r.status_code for r in responses] == [201, 201]
-    assert responses[0].json() == responses[1].json()
-    payload["item"]["making_charge"] = "0.00"
-    assert (
-        await client.post("/api/v1/purchases/stock", json=payload, headers=headers)
-    ).json() == responses[0].json()
+    assert [response.status_code for response in responses] == [410, 410]
+    assert (await client.get(f"/api/v1/purchases/stock/{existing.json()['id']}")).status_code == 200
     async with test_session_factory() as db:
-        assert await db.scalar(select(func.count()).select_from(Purchase)) == 2
-        assert await db.scalar(select(func.sum(InventoryBalance.total_weight))) == Decimal("5.200")
-        assert await db.scalar(select(func.count()).select_from(SupplierLedgerEntry)) == 2
+        assert await db.scalar(select(func.sum(InventoryBalance.total_weight))) == before
+        assert (
+            await db.scalar(select(func.count()).select_from(SupplierLedgerEntry)) == before_ledger
+        )

@@ -10,7 +10,6 @@ class PurchaseLineCreate(BaseModel):
     supplier_id: int
     product_id: int
     weight: Decimal = Field(gt=0, decimal_places=3, max_digits=12)
-    gold_price_per_gram: Decimal = Field(ge=0, decimal_places=4, max_digits=14)
     photo_token: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
     making_charge: Decimal = Field(ge=0, decimal_places=2, max_digits=14)
 
@@ -95,6 +94,7 @@ class PurchaseResponse(BaseModel):
     created_at: datetime
     location_id: int
     source: str
+    gold_quote_at: datetime | None = None
     supplier_id: int | None
     total_gold_charge_grams: Decimal | None
     gold_debt_24k: Decimal | None
@@ -121,4 +121,4 @@ class CustomerBulkPurchaseCreate(BaseModel):
     product_id: int = Field(gt=0)
     placement: Literal["factory", "showroom"] = "factory"
     weight: Decimal = Field(gt=0, decimal_places=3, max_digits=12)
-    paid_usd: Decimal = Field(gt=0, decimal_places=2, max_digits=14)
+    paid_usd: Decimal = Field(ge=0, decimal_places=2, max_digits=14)

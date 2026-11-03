@@ -520,6 +520,70 @@ test("live gold dashboard and cashier walk-in bulk purchase", async ({
   expect(submitted).not.toHaveProperty("customer_id");
 });
 
+test("cashier can seed opening bulk inventory at zero USD", async ({
+  page,
+}) => {
+  await api(page, "cashier");
+  await page.route("**/api/v1/products?**", (route) =>
+    route.fulfill({
+      json: [
+        {
+          id: 2,
+          name: "Bulk gold",
+          sku: "BULK",
+          inventory_type: "bulk",
+          purity_id: 1,
+        },
+      ],
+      headers: { "X-Total-Count": "1" },
+    }),
+  );
+  let submitted: Record<string, unknown> | undefined;
+  await page.route("**/api/v1/purchases/customer-stock", async (route) => {
+    submitted = route.request().postDataJSON();
+    expect(route.request().headers()["idempotency-key"]).toBeTruthy();
+    await route.fulfill({
+      status: 201,
+      json: { id: 7, source: "opening", paid_usd: "0", location_id: 1 },
+    });
+  });
+  await login(page);
+  const gold = page.locator("section.panel").filter({
+    has: page.getByRole("heading", { name: "Live gold price", exact: true }),
+  });
+  await expect(gold.getByText("$3110.00", { exact: true })).toBeVisible();
+  await expect(gold.getByText("$100.00", { exact: true })).toBeVisible();
+  await navigate(page, "Purchases");
+  await page
+    .getByRole("button", { name: "Customer bulk purchase", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByLabel("Supplier", { exact: true })).toHaveCount(0);
+  await expect(dialog.getByLabel("Customer", { exact: true })).toHaveCount(0);
+  await dialog.getByLabel("Location", { exact: true }).selectOption("1");
+  await dialog.getByLabel("Product", { exact: true }).selectOption("2");
+  await dialog.getByLabel("Placement", { exact: true }).selectOption("factory");
+  await dialog.getByLabel("Weight (g)", { exact: true }).fill("5");
+  await dialog.getByLabel("Total paid (USD)", { exact: true }).fill("0");
+  await expect(
+    dialog.getByText(
+      "Enter 0 USD for opening stock. No cash payment or supplier debt is recorded.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await dialog.getByRole("button", { name: "Confirm", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(submitted).toMatchObject({
+    location_id: 1,
+    product_id: 2,
+    weight: "5",
+    paid_usd: "0",
+    placement: "factory",
+  });
+  expect(submitted).not.toHaveProperty("supplier_id");
+  expect(submitted).not.toHaveProperty("customer_id");
+});
+
 test("item purchase uses one invoice gold charge and offers camera upload", async ({
   page,
 }) => {
@@ -531,6 +595,9 @@ test("item purchase uses one invoice gold charge and offers camera upload", asyn
   });
   await login(page);
   await navigate(page, "Purchases");
+  await expect(
+    page.getByRole("button", { name: "Bulk purchase", exact: true }),
+  ).toHaveCount(0);
   await page
     .getByRole("button", { name: "Item purchase", exact: true })
     .click();
@@ -546,11 +613,19 @@ test("item purchase uses one invoice gold charge and offers camera upload", asyn
   await dialog.getByLabel("Supplier", { exact: true }).selectOption("1");
   await dialog.getByLabel("Product", { exact: true }).selectOption("1");
   await dialog.getByLabel("Weight (g)", { exact: true }).fill("2.5");
-  await dialog.getByLabel("Gold price / gram", { exact: true }).fill("100");
+  await expect(
+    dialog.getByLabel("Gold price / gram", { exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    dialog.getByLabel("Calculated gold price / gram", { exact: true }),
+  ).toHaveText("100.0000");
   await dialog.getByLabel("Making charge (USD)", { exact: true }).fill("5");
   await dialog.getByRole("button", { name: "Confirm", exact: true }).click();
   await expect(dialog).toHaveCount(0);
   expect(submitted?.total_gold_charge_grams).toBe("2.5");
+  expect((submitted?.items as Record<string, unknown>[])[0]).not.toHaveProperty(
+    "gold_price_per_gram",
+  );
   expect((submitted?.items as Record<string, unknown>[])[0]).not.toHaveProperty(
     "gold_charge_in_grams",
   );

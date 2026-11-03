@@ -49,8 +49,14 @@ Changing catalog settings does not recalculate completed transactions.
 ### Item purchase invoices
 
 `POST /api/v1/purchases/item` is admin-only and requires `Idempotency-Key`.
-Each line contains product, physical weight, purchase gold price per gram,
-USD making charge and optional external image URL or staged `photo_token`.
+Each line contains product, physical weight, USD making charge and optional
+external image URL or staged `photo_token`. Purchase gold price is server-calculated,
+not an input: one fresh cached live quote prices the entire invoice. Each line
+uses USD per 24K gram × its purchase valuation factor, rounded to four decimal
+places half up. The invoice stores `gold_quote_at` and each piece retains its
+calculated `gold_price_per_gram`. Stale/unavailable quotes return 503 with no
+partial invoice, inventory or ledger entry. A successful idempotent replay returns
+the original purchase and never fetches another quote or reprices it.
 There is no per-line gold-charge input. `total_gold_charge_grams` is required
 and must equal the sum of the physical item weights; the frontend calculates it.
 
@@ -115,19 +121,26 @@ one-time 24K-equivalent snapshot. Original nominal entries remain visible.
 Do not downgrade after new purchase/converted-settlement activity: downgrade
 refuses to discard those payment snapshots. Use a reviewed backup restore.
 
-### Walk-in customer bulk purchases
+### Walk-in customer bulk purchases and opening stock
 
 Admin/cashier `POST /api/v1/purchases/customer-stock` requires `Idempotency-Key`.
 It takes `location_id`, bulk `product_id`, `placement`, positive `weight` and
-`paid_usd`, with optional invoice number/notes. No customer identity is collected.
-The purchase has `source=customer` and no supplier. Actual stock increases and
+nonnegative `paid_usd`, with optional invoice number/notes. No customer identity
+is collected. Negative payments are rejected. A zero payment records
+`source=opening`: opening bulk stock with no supplier debt, no cash entry and no
+drawer-funds requirement. It uses the same atomic inventory/retry safeguards as
+a paid purchase, including when the starting drawer and stock balances are zero.
+A positive-payment purchase has `source=customer` and no supplier. Actual stock increases and
 an immediate `customer_purchase` cash outflow is posted atomically. Insufficient
 drawer cash rejects the entire purchase. Matching retries return the original
 purchase; changed data with the same key returns 409.
 
 Cash summary includes `customer_purchases_usd`; net cash and reconciliation
 include the outflow. It is an inventory acquisition, not an operating expense
-or supplier debt. Supplier bulk purchases continue to post supplier obligations.
+or supplier debt. Supplier purchases are item invoices only. Physical bulk
+repayment is recorded through supplier settlements, never as another purchase.
+`POST /api/v1/purchases/stock` is retired (410, omitted from OpenAPI). Historical
+supplier bulk invoices remain readable through the existing purchase/stock GETs.
 
 ### Photos while purchasing
 
@@ -245,7 +258,7 @@ release supports customer item returns and supplier settlement corrections.
 
 ### Retryable operations
 
-`POST /purchases/item`, `/purchases/stock`, `/purchases/customer-stock`, and `/inventory/stocks/transfer`
+`POST /purchases/item`, `/purchases/customer-stock`, and `/inventory/stocks/transfer`
 require an `Idempotency-Key` header (1–100 characters, not blank), under `/api/v1`.
 Generate a new key for each intentional operation. Retain the same key, request
 data, and signed-in account when retrying after a timeout. Keys are scoped to the

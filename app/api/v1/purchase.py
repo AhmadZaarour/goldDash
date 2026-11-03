@@ -14,14 +14,12 @@ from app.schemas.purchases import (
     PurchaseCreate,
     PurchaseItemResponse,
     PurchaseResponse,
-    PurchaseStockCreate,
     PurchaseStockResponse,
 )
 from app.services.idempotency import IdempotencyKey, claim_operation, complete_operation
 from app.services.purchase_service import (
     create_customer_bulk_purchase,
     create_item_purchase,
-    create_stock_purchase,
     get_purchase,
     get_purchase_items,
     get_purchase_stock,
@@ -69,39 +67,13 @@ async def create_items_purchase_endpoint(
     return result
 
 
-@router.post(
-    "/stock",
-    response_model=PurchaseResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-async def create_stock_purchase_endpoint(
-    purchase_data: PurchaseStockCreate,
-    db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: AdminUser,
-    idempotency_key: IdempotencyKey,
-) -> PurchaseResponse:
-    receipt, replayed = await claim_operation(
-        db, current_user.id, "purchase:stock", idempotency_key, purchase_data
+@router.post("/stock", include_in_schema=False)
+async def retired_supplier_bulk_purchase(user: AdminUser):
+    raise HTTPException(
+        410,
+        "Supplier bulk purchases are retired. "
+        "Record an item purchase and use supplier settlements for payments.",
     )
-    if replayed:
-        return PurchaseResponse.model_validate(receipt.response_data)
-    purchase_data = purchase_data.model_copy(
-        update={"created_by": current_user.id, "created_at": datetime.now(UTC)}
-    )
-    try:
-        purchase = await create_stock_purchase(
-            db,
-            purchase_data,
-            commit=False,
-        )
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=str(exc),
-        ) from exc
-    result = PurchaseResponse.model_validate(purchase)
-    await complete_operation(db, receipt, result)
-    return result
 
 
 @router.post("/customer-stock", response_model=PurchaseResponse, status_code=201)

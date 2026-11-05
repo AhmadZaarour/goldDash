@@ -129,19 +129,21 @@ async def test_supplier_bulk_sale_records_rate_without_turning_it_into_cash(
     client, test_session_factory, purity, expected
 ):
     s = await setup_shop(client, test_session_factory)
-    if purity == "p24":
-        async with test_session_factory() as db:
-            db.add(
-                InventoryBalance(
-                    purity_id=s[purity],
-                    location_id=s["location"],
-                    placement="factory",
-                    total_weight=100,
-                )
+    async with test_session_factory() as db:
+        db.add(
+            InventoryBalance(
+                unit="factory",
+                purity_id=s[purity],
+                location_id=s["location"],
+                placement="factory",
+                total_weight=100,
+                cost_usd=1000,
             )
-            await db.commit()
+        )
+        await db.commit()
     result = await client.post(
         "/api/v1/sales/stock",
+        headers={"X-Business-Unit": "factory"},
         json={
             "location_id": s["location"],
             "item": {
@@ -155,13 +157,19 @@ async def test_supplier_bulk_sale_records_rate_without_turning_it_into_cash(
     )
     assert result.status_code == 201, result.text
     assert result.json()["gold_quote_at"]
-    stock = (await client.get(f"/api/v1/sales/stock/{result.json()['id']}")).json()
+    stock = (
+        await client.get(
+            f"/api/v1/sales/stock/{result.json()['id']}", headers={"X-Business-Unit": "factory"}
+        )
+    ).json()
     assert Decimal(stock["gold_price_per_gram"]) == Decimal(expected)
     async with test_session_factory() as db:
         assert await db.scalar(select(func.sum(CashEntry.amount_usd))) == 1000
         assert (
             await db.scalar(
-                select(InventoryBalance.total_weight).where(InventoryBalance.purity_id == s[purity])
+                select(InventoryBalance.total_weight).where(
+                    InventoryBalance.purity_id == s[purity], InventoryBalance.unit == "factory"
+                )
             )
             == 98
         )
@@ -219,7 +227,14 @@ async def test_unavailable_quotes_cannot_partially_post_any_trade(
         ),
     }
     url, body = requests[flow]
-    result = await client.post(url, json=body, headers={"Idempotency-Key": "failed-trade"})
+    result = await client.post(
+        url,
+        json=body,
+        headers={
+            "Idempotency-Key": "failed-trade",
+            "X-Business-Unit": "factory" if flow == "bulk_sale" else "showroom",
+        },
+    )
     assert result.status_code == 503, result.text
     async with test_session_factory() as db:
         assert await db.scalar(select(func.count()).select_from(Purchase)) == 1

@@ -15,11 +15,14 @@ pytestmark = pytest.mark.asyncio(loop_scope="session")
 async def seed_cash(factory, purchase, amount="100"):
     """Seed a recorded customer cash receipt for settlement tests."""
     async with factory() as db:
-        sale = Sale(location_id=purchase.location_id, created_by=purchase.created_by)
+        sale = Sale(
+            unit=purchase.unit, location_id=purchase.location_id, created_by=purchase.created_by
+        )
         db.add(sale)
         await db.flush()
         db.add(
             CashEntry(
+                unit=purchase.unit,
                 location_id=purchase.location_id,
                 sale_id=sale.id,
                 kind="sale",
@@ -71,7 +74,7 @@ async def test_purities_are_not_nettted_and_usd_is_separate(client, test_session
         purity = GoldPurity(name="22K", karat=22, purity=91.6, repayment_factor=Decimal("0.916"))
         db.add(purity)
         await db.flush()
-        await post_entry(
+        entry = await post_entry(
             db,
             supplier_id=purchase.supplier_id,
             purity_id=purity.id,
@@ -81,6 +84,7 @@ async def test_purities_are_not_nettted_and_usd_is_separate(client, test_session
             kind="sale",
             created_by=purchase.created_by,
         )
+        entry.unit = purchase.unit
         await db.commit()
         supplier_id, purity_id = purchase.supplier_id, purity.id
     tokens = await login_user(client)

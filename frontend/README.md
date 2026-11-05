@@ -32,7 +32,7 @@ backend's exact `CORS_ORIGINS`. Never put secrets in VITE-prefixed variables.
 - Overview with actual inventory counts, supplier counts and location cash totals.
 - Searchable inventory, photos, item/bulk transfers, returns and transfer history.
 - Catalog creation/editing, including item/bulk product classification.
-- Multi-piece purchases, supplier bulk purchases/sales, barcode-assisted customer
+- Multi-piece supplier purchases, customer bulk purchases, barcode-assisted customer
   checkout, sale details and item returns.
 - Supplier balances, ledger history, cash/gold settlements and settlement reversal.
 - Cash entries, expenses, owner withdrawals and reconciliation reports.
@@ -149,3 +149,17 @@ separately from physical weight. Mixed-purity invoices no longer redistribute
 physical grams across pieces. The migration restores the explicit 24K display for
 prior invoices with recorded conversion factors while preserving their original
 financial fields.
+
+
+## Factory and Showroom
+
+Use the Workspace selector to enter your assigned business unit. Admins can assign
+staff access on Staff accounts. Showroom handles supplier piece purchases and
+customer checkout. Both units buy bulk. Factory has Production and Supplier sales.
+Opening balances seeds each unit's drawer and valued bulk independently; later
+additions, corrections and paired transfers remain in its audit history. Production
+records inputs, pieces/photos, scrap, loss and paid costs. Factory / Showroom account
+records internal supplies once and moves actual gold/cash on payment. Workspace
+reports offer separate margins and combined profit excluding internal trade.
+Unassigned history lets admins explicitly classify pre-migration records.
+See the root business-rules document for cost, conversion and cutover details.

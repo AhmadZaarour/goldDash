@@ -27,6 +27,8 @@ class CashEntryResponse(BaseModel):
     sale_id: int | None
     return_id: int | None
     supplier_entry_id: int | None
+    unit: str | None
+    operation_id: int | None
     purchase_id: int | None
     description: str | None
     category: str | None
@@ -93,6 +95,11 @@ async def entries(
         "expense",
         "withdrawal",
         "customer_purchase",
+        "capital",
+        "adjustment",
+        "cash_transfer",
+        "internal_payment",
+        "production_cost",
     ]
     | None = None,
 ):
@@ -119,6 +126,11 @@ class CashSummaryResponse(BaseModel):
     withdrawals_usd: Decimal
     supplier_reversals_usd: Decimal
     customer_purchases_usd: Decimal
+    capital_usd: Decimal
+    adjustments_usd: Decimal
+    transfers_usd: Decimal
+    internal_payments_usd: Decimal
+    production_costs_usd: Decimal
     net_usd: Decimal
 
 
@@ -147,6 +159,11 @@ async def summary(
         "expenses_usd": -totals.get("expense", zero),
         "withdrawals_usd": -totals.get("withdrawal", zero),
         "customer_purchases_usd": -totals.get("customer_purchase", zero),
+        "capital_usd": totals.get("capital", zero),
+        "adjustments_usd": totals.get("adjustment", zero),
+        "transfers_usd": totals.get("cash_transfer", zero),
+        "internal_payments_usd": totals.get("internal_payment", zero),
+        "production_costs_usd": -totals.get("production_cost", zero),
         "net_usd": sum(totals.values(), zero),
     }
 

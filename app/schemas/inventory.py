@@ -7,7 +7,8 @@ from pydantic import AliasPath, BaseModel, ConfigDict, Field, HttpUrl
 class InventoryItemCreate(BaseModel):
     image_url: HttpUrl | None = Field(default=None, max_length=2048)
     location_id: int
-    purchase_item_id: int
+    purchase_item_id: int | None = None
+    production_piece_id: int | None = None
     status: str
 
 
@@ -45,21 +46,23 @@ class InventoryItemImageUpdate(BaseModel):
 
 class InventoryItemResponse(BaseModel):
     gold_charge_24k: Decimal | None = Field(
-        default=None, validation_alias=AliasPath("purchase_item", "gold_charge_24k")
+        default=None, validation_alias=AliasPath("origin_line", "gold_charge_24k")
     )
-    product_id: int = Field(validation_alias=AliasPath("purchase_item", "product_id"))
-    product_name: str = Field(validation_alias=AliasPath("purchase_item", "product", "name"))
-    sku: str = Field(validation_alias=AliasPath("purchase_item", "product", "sku"))
-    purity_id: int = Field(validation_alias=AliasPath("purchase_item", "product", "purity_id"))
-    category_id: int = Field(validation_alias=AliasPath("purchase_item", "product", "category_id"))
-    weight: Decimal = Field(validation_alias=AliasPath("purchase_item", "weight"))
+    product_id: int = Field(validation_alias=AliasPath("origin_line", "product_id"))
+    product_name: str = Field(validation_alias=AliasPath("origin_line", "product", "name"))
+    sku: str = Field(validation_alias=AliasPath("origin_line", "product", "sku"))
+    purity_id: int = Field(validation_alias=AliasPath("origin_line", "product", "purity_id"))
+    category_id: int = Field(validation_alias=AliasPath("origin_line", "product", "category_id"))
+    weight: Decimal = Field(validation_alias=AliasPath("origin_line", "weight"))
     base_cost_usd: Decimal
     image_url: str | None = None
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     location_id: int
-    purchase_item_id: int
+    purchase_item_id: int | None
+    production_piece_id: int | None = None
+    unit: str | None = None
     barcode: str | None = Field(default=None, min_length=1, max_length=50)
     status: str | None = Field(default=None, min_length=1, max_length=50)
 

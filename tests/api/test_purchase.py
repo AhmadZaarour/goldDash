@@ -4,6 +4,7 @@ import pytest
 from httpx import AsyncClient, Response
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.core.workspace import in_workspace
 from app.schemas.purchases import PurchaseResponse, PurchaseStockCreate
 from app.services.purchase_service import create_stock_purchase
 from tests.api.test_auth import (
@@ -64,6 +65,7 @@ async def test_create_purchase(
     client: AsyncClient, test_session_factory: async_sessionmaker[AsyncSession]
 ):
 
+    client.headers["X-Business-Unit"] = "showroom"
     login_response = await login_user(client)
     access_token = login_response["access_token"]
     user_response = await client.get(
@@ -128,11 +130,13 @@ async def test_create_purchase_stock(
     # Seed a historical supplier bulk invoice for legacy history/settlement tests.
     # The public endpoint is retired; new supplier trades use item invoices.
     async with test_session_factory() as db:
-        purchase = await create_stock_purchase(db, PurchaseStockCreate.model_validate(payload))
+        with in_workspace("factory"):
+            purchase = await create_stock_purchase(db, PurchaseStockCreate.model_validate(payload))
         response = Response(
             201, json=PurchaseResponse.model_validate(purchase).model_dump(mode="json")
         )
     data = response.json()
     assert data["invoice_number"] == payload["invoice_number"]
     assert data["notes"] == payload["notes"]
+    client.headers["X-Business-Unit"] = "factory"
     return response

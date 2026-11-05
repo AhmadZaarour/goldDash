@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.workspace import workspace_context
 from app.models.operationReceipt import OperationReceipt
 
 IdempotencyKey = Annotated[str, Header(alias="Idempotency-Key", min_length=1, max_length=100)]
@@ -27,6 +28,8 @@ def canonical(value: Any) -> Any:
 async def claim_operation(
     db: AsyncSession, user_id: int, operation: str, key: str, payload: BaseModel
 ) -> tuple[OperationReceipt, bool]:
+    if workspace_context.get() is not None:
+        operation = f"{workspace_context.get()}:{operation}"
     if not key.strip():
         raise HTTPException(422, "Idempotency-Key must not be blank")
     data = payload.model_dump(exclude={"created_by", "created_at"})

@@ -4,6 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.workspace import active_unit
 from app.models.inventoryItem import InventoryItem
 from app.models.inventoryMovement import InventoryMovement
 from app.models.inventoryStock import InventoryStock
@@ -29,7 +30,9 @@ async def create_item(
         statement = (
             insert(InventoryItem)
             .values(
+                unit=active_unit(),
                 purchase_item_id=item_data.purchase_item_id,
+                production_piece_id=item_data.production_piece_id,
                 location_id=item_data.location_id,
                 barcode=barcode,
                 image_url=str(item_data.image_url) if item_data.image_url is not None else None,

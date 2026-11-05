@@ -5,9 +5,10 @@ from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Numeric, String, f
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+from app.core.workspace import UnitOwned
 
 
-class StockTransferRecord(Base):
+class StockTransferRecord(UnitOwned, Base):
     __tablename__ = "stock_transfers"
     __table_args__ = (CheckConstraint("weight > 0", name="ck_transfer_weight"),)
     id: Mapped[int] = mapped_column(primary_key=True)

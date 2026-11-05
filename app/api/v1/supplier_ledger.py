@@ -12,14 +12,17 @@ from app.core.authorization import AdminUser
 from app.core.database import get_db
 from app.core.dependencies import CurrentUser
 from app.core.pagination import paginate
+from app.core.workspace import active_unit
 from app.models import GoldPurity, Location, Supplier
 from app.models.cashLedger import CashEntry
 from app.models.inventoryBalance import InventoryBalance
 from app.models.supplierLedger import SupplierLedgerEntry
 from app.services.gold_conversion import canonical_purity, grams24
+from app.services.gold_price import get_quote, price_per_gram, require_fresh_quote
 from app.services.settlement_resources import available_cash, move_resources
 from app.services.supplier_ledger_service import post_entry, supplier_balance
 from app.services.transaction_validation import require_active_location, require_active_supplier
+from app.services.workspace_stock import value4
 
 router = APIRouter(prefix="/suppliers", tags=["Supplier ledger"])
 
@@ -121,7 +124,7 @@ async def settle(
     if not debt_gold and not data.making_usd:
         raise HTTPException(422, "Settlement is below gold precision")
     sign = -1 if data.direction == "sent" else 1
-    key = f"settlement:{supplier_id}:{data.idempotency_key}"
+    key = f"settlement:{active_unit()}:{supplier_id}:{data.idempotency_key}"
     if await db.scalar(select(SupplierLedgerEntry.id).where(SupplierLedgerEntry.source_key == key)):
         raise HTTPException(409, "Settlement key already used")
     before = await supplier_balance(db, supplier_id)
@@ -132,13 +135,25 @@ async def settle(
         raise HTTPException(
             409, "Account can only be settled when USD and 24K-equivalent gold are zero"
         )
+    stock_value = None
+    recorded_price = data.gold_price_usd
     try:
-        await move_resources(
+        if data.gold_grams and data.direction == "received":
+            if recorded_price is None:
+                quote = await get_quote()
+                require_fresh_quote(quote)
+                recorded_price = Decimal(quote["gram_24k_usd"])
+            stock_value = value4(
+                data.gold_grams
+                * price_per_gram({"gram_24k_usd": str(recorded_price)}, physical_purity)
+            )
+        stock_value = await move_resources(
             db,
             location_id=data.location_id,
             purity_id=data.purity_id,
             placement=data.placement,
             gold_delta=sign * data.gold_grams,
+            gold_value_usd=stock_value,
             cash_delta=sign * (data.making_usd + data.cash_gold_usd),
         )
     except ValueError as error:
@@ -158,7 +173,8 @@ async def settle(
     entry.physical_purity_id = data.purity_id
     entry.physical_gold_grams = sign * data.gold_grams
     entry.cash_gold_usd = sign * data.cash_gold_usd
-    entry.gold_price_usd = data.gold_price_usd
+    entry.gold_price_usd = recorded_price
+    entry.stock_value_usd = stock_value
     entry.location_id = data.location_id
     entry.placement = data.placement if data.gold_grams else None
     try:
@@ -198,6 +214,7 @@ class LedgerEntryResponse(BaseModel):
     physical_gold_grams: Decimal | None
     cash_gold_usd: Decimal | None
     gold_price_usd: Decimal | None
+    stock_value_usd: Decimal | None
     making_usd: Decimal
     reversal_of_id: int | None
     note: str | None
@@ -277,6 +294,7 @@ async def reverse_settlement(
                 location_id=original.location_id,
                 purity_id=original.physical_purity_id or original.purity_id,
                 placement=original.placement,
+                gold_value_usd=original.stock_value_usd,
                 gold_delta=-(
                     original.physical_gold_grams
                     if original.physical_gold_grams is not None
@@ -291,7 +309,7 @@ async def reverse_settlement(
     reversal = SupplierLedgerEntry(
         supplier_id=supplier_id,
         purity_id=original.purity_id,
-        source_key=f"reversal:{supplier_id}:{data.idempotency_key}",
+        source_key=f"reversal:{active_unit()}:{supplier_id}:{data.idempotency_key}",
         kind="reversal",
         gold_grams=-original.gold_grams,
         gold_24k=-original.gold_24k,
@@ -302,6 +320,7 @@ async def reverse_settlement(
         else None,
         cash_gold_usd=-original.cash_gold_usd if original.cash_gold_usd is not None else None,
         gold_price_usd=original.gold_price_usd,
+        stock_value_usd=original.stock_value_usd,
         making_usd=-original.making_usd,
         reversal_of_id=original.id,
         location_id=original.location_id,

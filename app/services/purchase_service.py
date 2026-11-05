@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.workspace import active_unit, require_workspace
 from app.models.cashLedger import CashEntry
 from app.models.goldPurities import GoldPurity
 from app.models.inventoryBalance import InventoryBalance
@@ -50,6 +51,7 @@ async def create_item_purchase(
     except Exception:
         await db.rollback()
         raise
+    require_workspace("showroom")
     physical_total = sum((line.weight for line in purchase_data.items), Decimal(0))
     if purchase_data.total_gold_charge_grams != physical_total:
         raise ValueError("Total gold charge must equal the total purchased item weight")
@@ -105,6 +107,10 @@ async def create_item_purchase(
                 ),
             )
 
+            item.owner_cost_usd = (
+                line.weight * purchase_item.gold_price_per_gram + line.making_charge
+            )
+            item.company_cost_usd = item.owner_cost_usd
             if line.photo_token:
                 upload = await db.scalar(
                     select(PhotoUpload)
@@ -192,6 +198,8 @@ async def create_stock_purchase(
         )
 
         statement = insert(InventoryBalance).values(
+            unit=active_unit(),
+            cost_usd=purchase_data.item.weight * purchase_data.item.cost_per_gram,
             purity_id=product.purity_id,
             location_id=purchase.location_id,
             placement=purchase_data.item.stock_for,
@@ -201,7 +209,8 @@ async def create_stock_purchase(
             statement.on_conflict_do_update(
                 constraint="uq_balance_bucket",
                 set_={
-                    "total_weight": InventoryBalance.total_weight + statement.excluded.total_weight
+                    "total_weight": InventoryBalance.total_weight + statement.excluded.total_weight,
+                    "cost_usd": InventoryBalance.cost_usd + statement.excluded.cost_usd,
                 },
             )
         )
@@ -248,6 +257,8 @@ async def get_purchase_items(
     db: AsyncSession,
     purchase_id: int,
 ) -> list[PurchaseItem]:
+    if await db.get(Purchase, purchase_id) is None:
+        return []
     result = await db.scalars(
         select(PurchaseItem)
         .where(PurchaseItem.purchase_id == purchase_id)
@@ -301,17 +312,16 @@ async def create_customer_bulk_purchase(db, data, user_id):
     db.add(stock)
     await db.flush()
     await create_stock(db, InventoryStockCreate(purchase_stock_id=stock.id))
-    statement = insert(InventoryBalance).values(
-        purity_id=product.purity_id,
+    from app.services.workspace_stock import change_stock
+
+    await change_stock(
+        db,
+        unit=active_unit(),
         location_id=data.location_id,
+        purity_id=product.purity_id,
         placement=data.placement,
-        total_weight=data.weight,
-    )
-    await db.execute(
-        statement.on_conflict_do_update(
-            constraint="uq_balance_bucket",
-            set_={"total_weight": InventoryBalance.total_weight + statement.excluded.total_weight},
-        )
+        delta=data.weight,
+        value=data.paid_usd,
     )
     if data.paid_usd:
         db.add(

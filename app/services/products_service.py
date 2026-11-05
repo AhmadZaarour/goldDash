@@ -1,6 +1,8 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.workspace import in_workspace
+from app.models.operations import ProductionPiece
 from app.models.product import Product
 from app.models.purchaseItem import PurchaseItem
 from app.models.purchaseStock import PurchaseStock
@@ -78,14 +80,24 @@ async def update_product(
         raise ValueError("Product no longer exists")
     update_data = product_data.model_dump(exclude_unset=True)
     if "inventory_type" in update_data and update_data["inventory_type"] != product.inventory_type:
-        item_reference = await db.scalar(
-            select(PurchaseItem.id).where(PurchaseItem.product_id == product.id).limit(1)
-        )
-        stock_reference = await db.scalar(
-            select(PurchaseStock.id).where(PurchaseStock.product_id == product.id).limit(1)
-        )
-        if item_reference is not None or stock_reference is not None:
-            raise ValueError("Inventory type cannot change after the product has been purchased")
+        with in_workspace(None):
+            item_reference = await db.scalar(
+                select(PurchaseItem.id).where(PurchaseItem.product_id == product.id).limit(1)
+            )
+            stock_reference = await db.scalar(
+                select(PurchaseStock.id).where(PurchaseStock.product_id == product.id).limit(1)
+            )
+            production_reference = await db.scalar(
+                select(ProductionPiece.id).where(ProductionPiece.product_id == product.id).limit(1)
+            )
+            if (
+                item_reference is not None
+                or stock_reference is not None
+                or production_reference is not None
+            ):
+                raise ValueError(
+                    "Inventory type cannot change after the product has been purchased"
+                )
 
     if "sku" in update_data:
         existing_product = await db.scalar(

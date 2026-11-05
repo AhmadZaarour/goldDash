@@ -447,3 +447,106 @@ quotes. New nullable bulk-rate/timestamp columns leave historical missing market
 rates null rather than infer them from paid cost or today's quote. Existing item
 purchase/sale prices are preserved. Retired supplier bulk-purchase endpoints remain
 retired, with their history readable.
+
+
+## Independent Factory and Showroom workspaces
+
+Each request selects `X-Business-Unit: showroom` (default) or `factory`. Cash,
+stock quantities and carrying values, pieces, purchases, sales, expenses,
+reconciliations and external supplier accounts are owned by that workspace.
+Locations, contacts and product/purity catalogs remain shared. A location is a
+physical address; it does not determine ownership. Staff membership is assigned
+by an admin as Showroom, Factory or both. A workspace switch clears browser data
+before loading the selected workspace. Admins can review unassigned history.
+
+Showroom purchases supplier pieces individually, incurs gold debt in 24K-equivalent
+grams plus USD making charges, and sells pieces to customers. Factory creates
+production batches and sells finished pieces to suppliers or Showroom. Both units
+can buy bulk from walk-in customers with immediate payment, including the existing
+zero-USD inventory entry. No customer identity or supplier debt is created by bulk
+purchases. The bulk-buy form automatically uses the active workspace's bucket.
+
+### Opening balances and capital
+
+Admins use **Opening balances** for each workspace/location: record cash and one
+or more physical gold weights, purity, total recorded USD carrying value, date
+and notes. A carrying value of zero must be entered explicitly if appropriate.
+This records resources already owned; it does not spend cash, create revenue or
+incur supplier debt. Opening is allowed once at a location with no active cash or
+bulk balances. Subsequent capital additions and signed corrections are separate,
+audited actions. Corrections cannot spend unavailable cash or gold. The stock
+valuation action records a reviewed carrying value for existing bulk, including
+historical stock whose cost is unknown. Capital is never operating profit.
+
+### Production and cost
+
+A Factory batch consumes valued bulk and records individual finished pieces,
+recoverable scrap, explained unrecoverable loss and directly paid production
+costs. All weights are checked in 24K-equivalent grams, with 0.001g rounding
+tolerance. Output cannot exceed input. Scrap retains proportional material cost;
+remaining material cost, wastage and direct costs are allocated to finished
+pieces. Direct costs reduce Factory cash and are capitalized into the pieces,
+so they are not deducted twice as an expense. Unknown bulk costs must be recorded
+before production. Each piece retains its barcode, photo and origin metadata.
+Production reversal is available only while all pieces remain available at the
+original Factory location and the original resources can be restored.
+
+### Internal supply and payment
+
+An admin enters an internal invoice once: Factory pieces, Showroom destination,
+USD making charges per piece and agreed USD per 24K-equivalent gram (live quote
+suggested, manual price applied). Existing pieces move to Showroom, retaining
+barcodes/photos and their original company production costs. Showroom records the
+agreed internal acquisition value. One shared internal gold/USD account represents
+Factory's receivable and Showroom's payable; it is separate from external suppliers.
+
+Payments move actual gold and/or cash between the two workspaces atomically.
+Acquisition gold remains `18K weight × 0.75 / 0.995` or
+`21K weight × 0.875 / 0.995`. Repayment remains `24K debt / 0.74` for 18K,
+or `/ 0.865` for 21K. Thus physical gold clears debt at weight × its saved
+repayment factor. Cash substitution uses the entered USD per 24K-equivalent gram.
+Gold quantity and carrying cost travel together. Full settlement requires both
+gold and USD balances to reach zero. Internal invoices and payments have audited
+reversals using original factors/costs; invoices cannot reverse after external
+sale history. Ordinary cash/gold transfers move resources without clearing debt.
+
+Factory supplier sales create gold/USD receivables and no cash receipt until
+settlement. Supplier settlements use the same existing repayment equations.
+Received supplier gold is valued from the entered 24K USD rate or the fresh shared
+quote, with carrying value saved for production and exact reversal. A reversal
+never uses today's quote or edited purity settings.
+
+### Profit reports
+
+**Workspace reports** use recorded acquisition/production costs. Factory includes
+its internal sale margin; Showroom uses its agreed internal acquisition cost for
+customer sales. Combined business profit excludes internal invoices and uses
+original company costs when an external sale occurs, so unsold internal markup
+never becomes company profit. Returns restore original sale cost snapshots.
+Only operating expenses reduce these margins; capital, transfers and settlements
+do not. A missing historical carrying cost makes affected profit unavailable.
+The older Showroom monthly trade-margin panel remains a distinct sale-time gold
+valuation view; it is not the recorded-cost workspace profit report.
+
+### Historical cutover and API
+
+Migrations leave existing owned records unassigned (`unit IS NULL`), readable
+through the admin **Unassigned history** workspace. No placement-based ownership
+is inferred. Admins explicitly assign purchases (including linked inventory,
+receipts and supplier ledger), sales (including cash and ledger), cash, pieces,
+bulk balances and supporting history. Linked conflicting ownership rejects the
+assignment. Review remaining categories after assigning invoice roots; historic
+aggregate bulk balances are classified explicitly rather than reconstructed.
+Avoid seeding the same resources again after assigning existing balances.
+
+Apply `alembic upgrade head` before starting this version. The workspace migration
+refuses downgrade after workspace activity. No business database data is modified
+by installing the application code alone.
+
+New routes under `/api/v1/operations` include `overview`, `opening`, `capital`,
+`adjustments`, `stock-value`, `cash-transfers`, `gold-transfers`, `history`,
+`production`, `internal-invoices`, `internal-payments`, `internal-balance`,
+`internal-resources`, `supplier-item-sales`, `profit`, `legacy`, `legacy/assign`
+and `staff`. Financial writes require `Idempotency-Key` and preserve original
+results on retries. Factory staff can record production; financial administration
+and cross-workspace transfers require admin. Reports use Asia/Beirut month bounds.

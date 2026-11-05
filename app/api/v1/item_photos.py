@@ -5,19 +5,21 @@ import io
 import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Annotated
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 from PIL import Image, ImageOps, UnidentifiedImageError
 from sqlalchemy import select
 
 from app.api.v1.inventory_operations import Database
-from app.core.authorization import CashierUser
 from app.core.config import settings
 from app.core.dependencies import CurrentUser
+from app.core.workspace import active_unit
 from app.models.inventoryItem import InventoryItem
 from app.models.photoUpload import PhotoUpload
+from app.models.user import User
 from app.schemas.inventory import InventoryItemResponse
 
 router = APIRouter(tags=["Item photos"])
@@ -54,8 +56,19 @@ async def receive_photo(request: Request) -> str:
     return filename
 
 
+async def photo_user(user: CurrentUser) -> User:
+    if user.role not in {"admin", "cashier"} and not (
+        active_unit() == "factory" and user.role == "employee"
+    ):
+        raise HTTPException(403, "Insufficient permissions")
+    return user
+
+
+PhotoUser = Annotated[User, Depends(photo_user)]
+
+
 @router.post("/purchases/photos", status_code=201)
-async def stage_photo(request: Request, db: Database, user: CashierUser):
+async def stage_photo(request: Request, db: Database, user: PhotoUser):
     # Lock expired rows so cleanup cannot race purchase attachment or another cleanup.
     expired = await db.scalars(
         select(PhotoUpload)
@@ -89,7 +102,7 @@ async def stage_photo(request: Request, db: Database, user: CashierUser):
 
 
 @router.post("/inventory/items/{item_id}/photo", response_model=InventoryItemResponse)
-async def upload_photo(item_id: int, request: Request, db: Database, user: CashierUser):
+async def upload_photo(item_id: int, request: Request, db: Database, user: PhotoUser):
     item = await db.get(InventoryItem, item_id)
     if item is None:
         raise HTTPException(404, "Item not found")
@@ -106,8 +119,22 @@ async def upload_photo(item_id: int, request: Request, db: Database, user: Cashi
 
 
 @router.get("/media/items/{filename}", name="read_item_photo")
-async def read_item_photo(filename: str, user: CurrentUser):
+async def read_item_photo(filename: str, user: CurrentUser, db: Database):
     if not re.fullmatch(r"[a-f0-9]{32}\.jpg", filename):
+        raise HTTPException(404, "Photo not found")
+    owned = await db.scalar(
+        select(InventoryItem.id).where(InventoryItem.image_url.endswith("/" + filename)).limit(1)
+    )
+    staged = await db.scalar(
+        select(PhotoUpload.token)
+        .where(
+            PhotoUpload.filename == filename,
+            PhotoUpload.created_by == user.id,
+            PhotoUpload.inventory_item_id.is_(None),
+        )
+        .limit(1)
+    )
+    if owned is None and staged is None:
         raise HTTPException(404, "Photo not found")
     path = Path(settings.item_image_dir) / filename
     if not await asyncio.to_thread(path.is_file):

@@ -44,8 +44,21 @@ async def test_100_grams_trade_equations(
     )
     assert purchase.status_code == 201, purchase.text
     assert Decimal(purchase.json()["gold_debt_24k"]) == Decimal(expected)
+    async with test_session_factory() as db:
+        db.add(
+            InventoryBalance(
+                unit="factory",
+                purity_id=s[purity_key],
+                location_id=s["location"],
+                placement="factory",
+                total_weight=100,
+                cost_usd=1000,
+            )
+        )
+        await db.commit()
     sale = await client.post(
         "/api/v1/sales/stock",
+        headers={"X-Business-Unit": "factory"},
         json={
             "location_id": s["location"],
             "item": {
@@ -64,9 +77,15 @@ async def test_100_grams_trade_equations(
         )
         assert [entry.gold_24k for entry in entries] == [Decimal(expected), -Decimal(expected)]
     balance = (await client.get(f"/api/v1/suppliers/{s['supplier']}/balance")).json()
-    assert Decimal(balance["gold_24k"]) == 0
-    assert Decimal(balance["making_usd"]) == 0
-    assert balance["is_settled"]
+    assert Decimal(balance["gold_24k"]) == Decimal(expected)
+    assert Decimal(balance["making_usd"]) == 50
+    factory_balance = (
+        await client.get(
+            f"/api/v1/suppliers/{s['supplier']}/balance", headers={"X-Business-Unit": "factory"}
+        )
+    ).json()
+    assert Decimal(factory_balance["gold_24k"]) == -Decimal(expected)
+    assert Decimal(factory_balance["making_usd"]) == -50
 
 
 @pytest.mark.parametrize(

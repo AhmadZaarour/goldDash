@@ -63,7 +63,7 @@ async def create_item_sale(
             .with_for_update(of=InventoryItem)
         )
         items = {item.id: item for item in locked}
-        purity_ids = {item.purchase_item.product.purity_id for item in items.values()}
+        purity_ids = {item.origin_line.product.purity_id for item in items.values()}
         purities = {id: await db.get(GoldPurity, id) for id in sorted(purity_ids)}
         for line in sale_data.items:
             item = items.get(line.inventory_item_id)
@@ -78,9 +78,13 @@ async def create_item_sale(
                     sale_id=sale.id,
                     inventory_item_id=item.id,
                     gold_price_per_gram=price_per_gram(
-                        quote, purities[item.purchase_item.product.purity_id]
+                        quote, purities[item.origin_line.product.purity_id]
                     ),
                     discount=line.discount,
+                    cost_usd=item.cost_basis_usd,
+                    company_cost_usd=item.company_cost_usd
+                    if item.company_cost_usd is not None
+                    else item.cost_basis_usd,
                     sell_price=line.sell_price,
                 )
             )
@@ -130,6 +134,8 @@ async def create_stock_sale(
     require_fresh_quote(quote)
     sale = Sale(
         **sale_data.model_dump(exclude={"item"}, exclude_none=True),
+        kind="supplier",
+        supplier_id=sale_data.item.supplier_id,
         gold_quote_at=datetime.fromisoformat(quote["fetched_at"]),
     )
     db.add(sale)
@@ -163,6 +169,13 @@ async def create_stock_sale(
         weight = Decimal(str(sale_data.item.weight))
         if balance.total_weight < weight:
             raise ValueError("Insufficient factory inventory weight")
+        sale_stock.cost_usd = (
+            (balance.cost_usd * weight / balance.total_weight).quantize(Decimal("0.0001"))
+            if balance.cost_usd is not None
+            else None
+        )
+        if balance.cost_usd is not None:
+            balance.cost_usd -= sale_stock.cost_usd
         updated_balance = InventoryBalanceUpdate(total_weight=balance.total_weight - weight)
         await inventory_balance_update(db, balance, updated_balance)
         await post_entry(

@@ -16,6 +16,7 @@ from app.api.v1.inventoryServicing import router as servicing_router
 from app.api.v1.item_photos import router as item_photos_router
 from app.api.v1.legacy_books import router as legacy_books_router
 from app.api.v1.locations import router as locations_router
+from app.api.v1.operations import router as operations_router
 from app.api.v1.products import router as products_router
 from app.api.v1.purchase import router as purchase_router
 from app.api.v1.sale import router as sale_router
@@ -64,3 +65,5 @@ api_router.include_router(development_router, dependencies=[Depends(get_current_
 
 
 api_router.include_router(gold_price_router)
+
+api_router.include_router(operations_router, dependencies=[Depends(get_current_user)])

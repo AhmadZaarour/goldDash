@@ -6,9 +6,10 @@ from sqlalchemy import DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+from app.core.workspace import UnitOwned
 
 
-class PhotoUpload(Base):
+class PhotoUpload(UnitOwned, Base):
     __tablename__ = "purchase_photo_uploads"
     token: Mapped[str] = mapped_column(String(32), primary_key=True)
     filename: Mapped[str] = mapped_column(String(36), unique=True)

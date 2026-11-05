@@ -1190,3 +1190,11 @@ html {
 }
 
 fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+
+.workspace-picker { display: flex; gap: .5rem; align-items: center; font-size: .8rem; }
+.workspace-picker select { max-width: 12rem; min-height: 2.25rem; border: 1px solid #d8ddd8; border-radius: .5rem; padding: .3rem .5rem; background: white; color: #163b30; }
+.workspace-banner { font-size: .8rem; font-weight: 600; color: #35664e; margin-bottom: .75rem; }
+.operations-actions { display: flex; gap: .6rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.operations-note { max-width: 65ch; color: #65756e; }
+@media (max-width: 650px) { .workspace-picker > span { display: none; } .workspace-picker select { max-width: 9rem; } .topbar .today { display: none; } }
+.audit-details { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .8rem; background: #f3f5f0; padding: 1rem; border-radius: .5rem; direction: ltr; text-align: left; }

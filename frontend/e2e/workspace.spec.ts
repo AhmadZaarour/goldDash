@@ -9,6 +9,17 @@ async function api(page: Page, role = "admin") {
     if (path === "/auth/login" || path === "/auth/refresh")
       body = { access_token: "test-token", refresh_token: "test-refresh" };
     else if (path === "/auth/me") body = user;
+    else if (path === "/operations/overview")
+      body = { cash_usd: "125", available_pieces: 1, bulk: [] };
+    else if (path === "/operations/staff") body = [user];
+    else if (path === "/operations/profit")
+      body = {
+        revenue_usd: "500",
+        cost_of_sales_usd: "260",
+        expenses_usd: "0",
+        profit_usd: "240",
+        uncosted_trades: 0,
+      };
     else if (path === "/gold-price")
       body = {
         ounce_usd: "3110",
@@ -268,9 +279,7 @@ test("supplier balances, shortage warning and full settlement", async ({
   ).toBeDisabled();
   cash = "100.00";
   // Changing the bucket refreshes the availability rather than using an old quote.
-  await dialog
-    .getByLabel("Placement", { exact: true })
-    .selectOption("showroom");
+  await dialog.getByLabel("Placement", { exact: true }).selectOption("factory");
   await expect(
     dialog.getByLabel("Settle account in full", { exact: true }),
   ).toBeEnabled();
@@ -286,7 +295,7 @@ test("supplier balances, shortage warning and full settlement", async ({
     direction: "sent",
     location_id: 1,
     purity_id: 1,
-    placement: "showroom",
+    placement: "factory",
     making_usd: "30",
     gold_grams: "2",
     close_account: true,
@@ -365,6 +374,11 @@ test("development reset requires exact confirmation and refreshes dashboard", as
       });
     }
   });
+  await page.route("**/api/v1/operations/overview", (route) =>
+    route.fulfill({
+      json: { cash_usd: "0", available_pieces: cleared ? 0 : 1, bulk: [] },
+    }),
+  );
   await page.route("**/api/v1/inventory/items?**", async (route) => {
     if (cleared)
       await route.fulfill({ json: [], headers: { "X-Total-Count": "0" } });
@@ -511,7 +525,6 @@ test("live gold dashboard and cashier walk-in bulk purchase", async ({
   await expect(dialog.getByLabel("Customer", { exact: true })).toHaveCount(0);
   await dialog.getByLabel("Location", { exact: true }).selectOption("1");
   await dialog.getByLabel("Product", { exact: true }).selectOption("2");
-  await dialog.getByLabel("Placement", { exact: true }).selectOption("factory");
   await dialog.getByLabel("Weight (g)", { exact: true }).fill("5");
   await expect(
     dialog.getByLabel("Calculated gold price / gram", { exact: true }),
@@ -524,7 +537,7 @@ test("live gold dashboard and cashier walk-in bulk purchase", async ({
     product_id: 2,
     weight: "5",
     paid_usd: "250",
-    placement: "factory",
+    placement: "showroom",
   });
   expect(submitted).not.toHaveProperty("supplier_id");
   expect(submitted).not.toHaveProperty("customer_id");
@@ -572,7 +585,6 @@ test("cashier can seed opening bulk inventory at zero USD", async ({
   await expect(dialog.getByLabel("Customer", { exact: true })).toHaveCount(0);
   await dialog.getByLabel("Location", { exact: true }).selectOption("1");
   await dialog.getByLabel("Product", { exact: true }).selectOption("2");
-  await dialog.getByLabel("Placement", { exact: true }).selectOption("factory");
   await dialog.getByLabel("Weight (g)", { exact: true }).fill("5");
   await dialog.getByLabel("Total paid (USD)", { exact: true }).fill("0");
   await expect(
@@ -588,7 +600,7 @@ test("cashier can seed opening bulk inventory at zero USD", async ({
     product_id: 2,
     weight: "5",
     paid_usd: "0",
-    placement: "factory",
+    placement: "showroom",
   });
   expect(submitted).not.toHaveProperty("supplier_id");
   expect(submitted).not.toHaveProperty("customer_id");
@@ -641,27 +653,24 @@ test("item purchase uses one invoice gold charge and offers camera upload", asyn
   );
 });
 
-test("supplier bulk sale previews its live rate and keeps making charges editable", async ({
+test("factory sells pieces to suppliers with making charges", async ({
   page,
 }) => {
   await api(page);
   await login(page);
+  await page.getByLabel("Workspace", { exact: true }).selectOption("factory");
   await navigate(page, "Sales");
+  await expect(
+    page.getByRole("heading", { name: "Supplier sales", exact: true }),
+  ).toBeVisible();
   await page
-    .getByRole("button", { name: "Supplier bulk sale", exact: true })
+    .getByRole("button", { name: "Sell to supplier", exact: true })
     .click();
   const dialog = page.getByRole("dialog");
-  await dialog.getByLabel("Purity", { exact: true }).selectOption("1");
-  await expect(
-    dialog.getByLabel("Calculated gold price / gram", { exact: true }),
-  ).toHaveText("100.0000");
-  await expect(
-    dialog.getByLabel("Gold price / gram", { exact: true }),
-  ).toHaveCount(0);
-  await dialog.getByLabel("Making charge (USD)", { exact: true }).fill("9.25");
+  await expect(dialog.getByLabel("Supplier", { exact: true })).toBeVisible();
   await expect(
     dialog.getByLabel("Making charge (USD)", { exact: true }),
-  ).toHaveValue("9.25");
+  ).toBeVisible();
 });
 
 test("purchase details distinguish 5g physical weight from 4.397g 24K charge", async ({
@@ -706,4 +715,95 @@ test("purchase details distinguish 5g physical weight from 4.397g 24K charge", a
   ).toBeVisible();
   await expect(dialog.getByText("4.397", { exact: true })).toBeVisible();
   await expect(dialog.getByText("5.250", { exact: true })).toHaveCount(0);
+});
+
+test("workspace switch scopes requests and exposes factory production and seeding", async ({
+  page,
+}) => {
+  await api(page);
+  await login(page);
+  const request = page.waitForRequest(
+    (r) =>
+      r.url().includes("/operations/overview") &&
+      r.headers()["x-business-unit"] === "factory",
+  );
+  await page.getByLabel("Workspace", { exact: true }).selectOption("factory");
+  await request;
+  await navigate(page, "Production");
+  await expect(
+    page.getByRole("heading", { name: "Production", exact: true }),
+  ).toBeVisible();
+  await navigate(page, "Opening balances");
+  await expect(
+    page.getByRole("heading", { name: "Opening balances", exact: true }),
+  ).toBeVisible();
+  await page.getByLabel("Workspace", { exact: true }).selectOption("showroom");
+  const menu = page.getByRole("button", { name: "Menu", exact: true });
+  if (await menu.isVisible()) await menu.click();
+  await expect(
+    page.locator("nav").getByRole("link", { name: "Production", exact: true }),
+  ).toHaveCount(0);
+});
+
+test("admin seeds factory cash and gold then records production", async ({
+  page,
+}) => {
+  await api(page);
+  const writes: Record<string, unknown>[] = [];
+  await page.route("**/api/v1/operations/**", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    expect(route.request().headers()["x-business-unit"]).toBe("factory");
+    expect(route.request().headers()["idempotency-key"]).toBeTruthy();
+    writes.push(route.request().postDataJSON());
+    await route.fulfill({
+      status: 201,
+      json: { id: 1, kind: "recorded", message: "Recorded" },
+    });
+  });
+  await login(page);
+  await page.getByLabel("Workspace", { exact: true }).selectOption("factory");
+  await navigate(page, "Opening balances");
+  await page
+    .getByRole("button", { name: "Set opening balances", exact: true })
+    .click();
+  let dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Location", { exact: true }).selectOption("1");
+  await dialog.getByLabel("Cash (USD)", { exact: true }).fill("1000");
+  await dialog
+    .getByLabel("Reason / notes", { exact: true })
+    .fill("Starting capital");
+  await dialog
+    .getByRole("button", { name: "Add gold line", exact: true })
+    .click();
+  await dialog.getByLabel("Purity", { exact: true }).selectOption("1");
+  await dialog.getByLabel("Weight (g)", { exact: true }).fill("100");
+  await dialog
+    .getByLabel("Recorded gold value (USD)", { exact: true })
+    .fill("5000");
+  await dialog.getByRole("button", { name: "Confirm", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(writes[0]).toMatchObject({
+    cash_usd: "1000",
+    gold: [{ purity_id: 1, weight: "100", value_usd: "5000" }],
+  });
+  await navigate(page, "Production");
+  await page
+    .getByRole("button", { name: "Start production", exact: true })
+    .click();
+  dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Location", { exact: true }).selectOption("1");
+  await dialog
+    .getByLabel("Production costs paid (USD)", { exact: true })
+    .fill("20");
+  await dialog.getByLabel("Purity", { exact: true }).selectOption("1");
+  await dialog.getByLabel("Weight (g)", { exact: true }).nth(0).fill("5");
+  await dialog.getByLabel("Product", { exact: true }).selectOption("1");
+  await dialog.getByLabel("Weight (g)", { exact: true }).nth(1).fill("5");
+  await dialog.getByRole("button", { name: "Confirm", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(writes[1]).toMatchObject({
+    direct_cost_usd: "20",
+    inputs: [{ purity_id: 1, weight: "5" }],
+    pieces: [{ product_id: 1, weight: "5" }],
+  });
 });

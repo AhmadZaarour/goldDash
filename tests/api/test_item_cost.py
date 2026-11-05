@@ -9,7 +9,7 @@ pytestmark = pytest.mark.asyncio(loop_scope="session")
 @pytest.mark.parametrize(
     "grams,rate,making,expected",
     [
-        ("7.777", "1.0000", "8.25", "71.94"),
+        ("7.777", "1.0000", "8.25", "16.03"),
         ("7.777", "100", "0", "777.70"),
     ],
 )

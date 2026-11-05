@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, StringConstraints, field_validator
 
@@ -13,6 +13,7 @@ class UserCreate(BaseModel):
     username: Username
     password: str = Field(min_length=8, max_length=128)
     role: UserRole = UserRole.EMPLOYEE
+    workspace_access: Literal["showroom", "factory", "both"] = "showroom"
 
     @field_validator("password")
     @classmethod
@@ -29,5 +30,6 @@ class UserResponse(BaseModel):
     email: EmailStr
     username: str
     role: UserRole
+    workspace_access: str
     is_active: bool
     created_at: datetime

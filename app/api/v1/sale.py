@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.authorization import AdminUser, CashierUser
 from app.core.database import get_db
 from app.core.pagination import paginate
+from app.core.workspace import require_workspace
 from app.models.sales import Sale
 from app.schemas.sales import (
     SaleCreate,
@@ -40,6 +41,7 @@ async def create_sale_endpoint(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: CashierUser,
 ) -> SaleResponse:
+    require_workspace("showroom")
     sale_data = sale_data.model_copy(
         update={"created_by": current_user.id, "created_at": datetime.now(UTC)}
     )
@@ -66,6 +68,7 @@ async def create_stock_sale_endpoint(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: AdminUser,
 ) -> SaleResponse:
+    require_workspace("factory")
     sale_data = sale_data.model_copy(
         update={"created_by": current_user.id, "created_at": datetime.now(UTC)}
     )

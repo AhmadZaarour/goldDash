@@ -1,6 +1,7 @@
 # goldDash backend
 
-FastAPI API for gold-shop catalog, purchases, barcoded inventory, supplier gold/USD
+FastAPI API with independent Factory and Showroom cash, stock, production and profit,
+plus gold-shop catalog, purchases, barcoded inventory, supplier gold/USD
 obligations, customer cash sales, returns, transfers, and cash reconciliation.
 See [business rules and API contract](docs/business-rules.md) for endpoint details,
 roles, amounts, and supported workflows.

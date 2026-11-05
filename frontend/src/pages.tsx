@@ -10,6 +10,7 @@ import {
   Users,
 } from "lucide-react";
 import Decimal from "decimal.js";
+import { WorkspaceSummary } from "./operations";
 import { DevelopmentReset } from "./development";
 import { ItemCostLabel, SaleItemCost } from "./item-cost";
 import { SupplierSettlement, type SupplierBalance } from "./settlement";
@@ -22,7 +23,7 @@ import {
 import { MonthlyProfitView } from "./profit";
 import { all, get, request, raw, list, Operation, type Row } from "./api";
 import { useLanguage } from "./i18n";
-import { useCan, useUser } from "./session";
+import { useCan, useUser, useWorkspace } from "./session";
 import {
   DataList,
   Modal,
@@ -149,6 +150,7 @@ export function Photo({ url }: { url: unknown }) {
 }
 
 export function Dashboard() {
+  const workspace = useWorkspace();
   const { t } = useLanguage();
   const u = useUser();
   const can = useCan();
@@ -210,7 +212,8 @@ export function Dashboard() {
         </div>
       </div>
       <GoldPrice />
-      {can.admin && <MonthlyProfitView />}
+      {can.admin && workspace === "showroom" && <MonthlyProfitView />}
+      <WorkspaceSummary showPieces={false} />
       <section className="panel">
         <h2>{t("Quick actions")}</h2>
         <div className="quick-links">
@@ -860,6 +863,7 @@ function TradeForm({
 }) {
   const { t } = useLanguage();
   const purchase = kind.endsWith("Purchase");
+  const workspace = useWorkspace();
   const customerBulk = kind === "customerBulkPurchase";
   const bulk = kind.startsWith("bulk") || customerBulk;
   const [head, setHead] = useState<Values>({});
@@ -924,13 +928,6 @@ function TradeForm({
       : customerBulk
         ? [
             product("bulk"),
-            {
-              key: "placement",
-              label: "Placement",
-              type: "select",
-              options: ["factory", "showroom"],
-              required: true,
-            },
             amount("weight", "Weight (g)"),
             amount("paid_usd", "Total paid (USD)"),
           ]
@@ -1011,7 +1008,8 @@ function TradeForm({
             line.photo_token = lines[index].photo_token;
         });
       }
-      if (customerBulk) Object.assign(payload, converted[0]);
+      if (customerBulk)
+        Object.assign(payload, converted[0], { placement: workspace });
       if (kind === "bulkSale") delete payload.supplier_id;
       if (customerBulk) {
         /* flat request; no customer identity */
@@ -1323,6 +1321,7 @@ function TradeDetail({
                 ))}
             </div>
             {!purchase &&
+              record.kind !== "supplier" &&
               row.inventory_item_id != null &&
               (row.returned ? (
                 <Badge value="Returned" />
@@ -1364,6 +1363,7 @@ function TradeDetail({
 }
 
 export function Trades({ purchase = false }: { purchase?: boolean }) {
+  const workspace = useWorkspace();
   const { t } = useLanguage();
   const can = useCan();
   const [action, setAction] = useState<
@@ -1383,7 +1383,9 @@ export function Trades({ purchase = false }: { purchase?: boolean }) {
                 {t("Customer bulk purchase")}
               </button>
             )}
-            {(purchase ? can.admin : can.cashier) && (
+            {(purchase
+              ? can.admin && workspace === "showroom"
+              : can.cashier) && (
               <button
                 onClick={() =>
                   setAction(purchase ? "itemPurchase" : "customerSale")
@@ -1393,7 +1395,7 @@ export function Trades({ purchase = false }: { purchase?: boolean }) {
                 {t(purchase ? "Item purchase" : "Customer sale")}
               </button>
             )}
-            {!purchase && can.admin && (
+            {!purchase && workspace === "factory" && can.admin && (
               <button
                 className="secondary"
                 onClick={() => setAction("bulkSale")}
@@ -1773,6 +1775,11 @@ export function Cash() {
               ["Customer bulk purchases", "customer_purchases_usd"],
               ["Supplier sent", "supplier_sent_usd"],
               ["Supplier received", "supplier_received_usd"],
+              ["Capital", "capital_usd"],
+              ["Adjustments", "adjustments_usd"],
+              ["Cash transfers", "transfers_usd"],
+              ["Internal payments", "internal_payments_usd"],
+              ["Production costs", "production_costs_usd"],
               ["Net movement", "net_usd"],
             ].map(([label, key]) => (
               <div className="stat compact" key={key}>
@@ -1995,12 +2002,48 @@ export function Staff() {
   const { t } = useLanguage();
   const op = useRef(new Operation());
   const [saved, setSaved] = useState(false);
+  const [editing, setEditing] = useState<Row>();
+  const done = useDone(() => setEditing(undefined));
   return (
     <>
       <PageHead
         title="Staff accounts"
         description="Only admins can create staff accounts."
       />
+      <section className="panel">
+        <DataList
+          path="/operations/staff"
+          searchable={false}
+          columns={[
+            { key: "username", label: "Username" },
+            { key: "role", label: "Role" },
+            { key: "workspace_access", label: "Workspace access" },
+          ]}
+          edit={setEditing}
+        />
+      </section>
+      {editing && (
+        <Modal title="Workspace access" close={() => setEditing(undefined)}>
+          <Form
+            fields={[
+              {
+                key: "workspace_access",
+                label: "Workspace access",
+                type: "select",
+                options: ["showroom", "factory", "both"],
+                required: true,
+              },
+            ]}
+            initial={{
+              workspace_access: String(editing.workspace_access || "showroom"),
+            }}
+            submit={(v) =>
+              op.current.send(`/operations/staff/${editing.id}`, v, "PATCH")
+            }
+            done={done}
+          />
+        </Modal>
+      )}
       <section className="panel narrow">
         {saved && (
           <div className="notice success" role="status">
@@ -2010,6 +2053,13 @@ export function Staff() {
         <Form
           key={String(saved)}
           fields={[
+            {
+              key: "workspace_access",
+              label: "Workspace access",
+              type: "select",
+              options: ["showroom", "factory", "both"],
+              required: true,
+            },
             { key: "email", label: "Email", required: true, maxLength: 255 },
             {
               key: "username",
@@ -2032,7 +2082,7 @@ export function Staff() {
               required: true,
             },
           ]}
-          initial={{ role: "cashier" }}
+          initial={{ role: "cashier", workspace_access: "showroom" }}
           submit={(v) => op.current.send("/auth/register", v)}
           done={() => {
             setSaved(true);

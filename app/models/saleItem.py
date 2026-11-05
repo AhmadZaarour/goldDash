@@ -6,9 +6,10 @@ from sqlalchemy import ForeignKey, Numeric
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+from app.core.workspace import UnitOwned
 
 
-class SaleItem(Base):
+class SaleItem(UnitOwned, Base):
     __tablename__ = "saleItems"
 
     id: Mapped[int] = mapped_column(
@@ -21,6 +22,11 @@ class SaleItem(Base):
     )
 
     inventory_item_id: Mapped[int] = mapped_column(ForeignKey("inventoryItems.id"))
+
+    company_cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    gold_24k: Mapped[Decimal | None] = mapped_column(Numeric(20, 6))
+    making_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0, server_default="0")
 
     gold_price_per_gram: Mapped[Decimal] = mapped_column(
         Numeric(14, 4),

@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.authorization import CashierUser, EmployeeUser
 from app.core.database import get_db
+from app.core.workspace import active_unit
 from app.models import (
     GoldPurity,
     InventoryBalance,
@@ -86,6 +87,11 @@ async def return_item(data: ItemReturnCreate, db: Database, user: CashierUser):
     line = await db.get(SaleItem, data.sale_item_id)
     if line is None:
         raise HTTPException(404, "Sale line not found")
+    from app.models.sales import Sale
+
+    sale = await db.get(Sale, line.sale_id)
+    if sale is None or sale.kind != "customer":
+        raise HTTPException(409, "Supplier sales require a supplier return document")
     item = await db.scalar(
         select(InventoryItem)
         .where(InventoryItem.id == line.inventory_item_id)
@@ -155,6 +161,7 @@ async def transfer_stock(
         await db.execute(
             insert(InventoryBalance)
             .values(
+                unit=active_unit(),
                 purity_id=data.purity_id,
                 location_id=location_id,
                 placement=placement,
@@ -176,6 +183,21 @@ async def transfer_stock(
     balances = {(b.location_id, b.placement): b for b in buckets}
     if balances[source].total_weight < data.weight:
         raise HTTPException(409, "Insufficient stock for transfer")
+    value = (
+        (balances[source].cost_usd * data.weight / balances[source].total_weight).quantize(
+            Decimal("0.0001")
+        )
+        if balances[source].cost_usd is not None
+        else None
+    )
+    if balances[source].cost_usd is not None:
+        balances[source].cost_usd -= value
+    if value is None or (
+        balances[destination].total_weight > 0 and balances[destination].cost_usd is None
+    ):
+        balances[destination].cost_usd = None
+    else:
+        balances[destination].cost_usd = (balances[destination].cost_usd or Decimal(0)) + value
     balances[source].total_weight -= data.weight
     balances[destination].total_weight += data.weight
     # The audit record and both balance changes commit together.

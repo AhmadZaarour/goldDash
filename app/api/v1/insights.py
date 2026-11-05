@@ -91,7 +91,7 @@ async def monthly_profit(
         .join(Sale, Sale.id == SaleItem.sale_id)
         .join(InventoryItem, InventoryItem.id == SaleItem.inventory_item_id)
         .join(PurchaseItem, PurchaseItem.id == InventoryItem.purchase_item_id)
-        .where(Sale.created_at >= start, Sale.created_at < end)
+        .where(Sale.created_at >= start, Sale.created_at < end, Sale.kind == "customer")
     )
     returns = (
         select(
@@ -104,7 +104,7 @@ async def monthly_profit(
         .join(Sale, Sale.id == SaleItem.sale_id)
         .join(InventoryItem, InventoryItem.id == SaleItem.inventory_item_id)
         .join(PurchaseItem, PurchaseItem.id == InventoryItem.purchase_item_id)
-        .where(ItemReturn.created_at >= start, ItemReturn.created_at < end)
+        .where(ItemReturn.created_at >= start, ItemReturn.created_at < end, Sale.kind == "customer")
     )
     expenses = select(func.coalesce(-func.sum(CashEntry.amount_usd), 0)).where(
         CashEntry.kind == "expense", CashEntry.created_at >= start, CashEntry.created_at < end

@@ -22,7 +22,7 @@ from app.core.database import Base, get_db
 from app.core.security import create_access_token, hash_password
 from app.main import app
 from app.models.user import User
-from app.services import purchase_service, sale_service, session_service
+from app.services import operations_service, purchase_service, sale_service, session_service
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -129,6 +129,10 @@ async def purchase_market_quote(monkeypatch):
 
     monkeypatch.setattr(purchase_service, "get_quote", quote)
     monkeypatch.setattr(sale_service, "get_quote", quote)
+    monkeypatch.setattr(operations_service, "get_quote", quote)
+    from app.api.v1 import supplier_ledger
+
+    monkeypatch.setattr(supplier_ledger, "get_quote", quote)
     return values
 
 

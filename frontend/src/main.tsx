@@ -12,6 +12,7 @@ import {
   Route,
   Routes,
   useLocation,
+  useNavigate,
 } from "react-router-dom";
 import {
   Gem,
@@ -29,7 +30,17 @@ import {
   Menu,
   X,
 } from "lucide-react";
-import { login, logout, get, renew, onExpired, type User } from "./api";
+import {
+  getWorkspace,
+  setWorkspace,
+  type Workspace,
+  login,
+  logout,
+  get,
+  renew,
+  onExpired,
+  type User,
+} from "./api";
 import { Language, useLanguage } from "./i18n";
 import { SessionProvider } from "./session";
 import {
@@ -42,6 +53,14 @@ import {
   Servicing,
   Staff,
 } from "./pages";
+import {
+  BalanceSetup,
+  Production,
+  InternalTrade,
+  WorkspaceReports,
+  FactorySales,
+  LegacyHistory,
+} from "./operations";
 import { Busy, Form } from "./ui";
 import "./styles.css";
 const client = new QueryClient({
@@ -56,6 +75,26 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [menu, setMenu] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
+  const [workspace, changeWorkspace] = useState<Workspace>(getWorkspace());
+  function enterWorkspace(unit: Workspace) {
+    setWorkspace(unit);
+    changeWorkspace(unit);
+    client.clear();
+    setMenu(false);
+    navigate("/");
+  }
+  function signedIn(me: User) {
+    const allowed =
+      me.role === "admin" || me.workspace_access === "both"
+        ? ["factory", "showroom", ...(me.role === "admin" ? ["legacy"] : [])]
+        : [me.workspace_access || "showroom"];
+    if (!allowed.includes(getWorkspace())) {
+      setWorkspace(me.workspace_access === "factory" ? "factory" : "showroom");
+      changeWorkspace(getWorkspace());
+    }
+    setUser(me);
+  }
   useEffect(() => setMenu(false), [location.pathname]);
   useEffect(() => {
     onExpired(() => {
@@ -64,7 +103,7 @@ function App() {
     });
     renew()
       .then(async (ok) => {
-        if (ok) setUser(await get<User>("/auth/me"));
+        if (ok) signedIn(await get<User>("/auth/me"));
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -123,7 +162,7 @@ function App() {
               submit={async (v) => {
                 const me = await login(String(v.email), String(v.password));
                 client.clear();
-                setUser(me);
+                signedIn(me);
               }}
               done={() => {}}
               button="Sign in"
@@ -163,8 +202,42 @@ function App() {
       allow: user.role === "admin",
     },
   ];
+  nav.push(
+    {
+      to: "/balances",
+      label: "Opening balances",
+      icon: Wallet,
+      allow: user.role === "admin" && workspace !== "legacy",
+    },
+    {
+      to: "/production",
+      label: "Production",
+      icon: Wrench,
+      allow: workspace === "factory" && user.role !== "cashier",
+    },
+    {
+      to: "/internal",
+      label: "Factory / Showroom account",
+      icon: Truck,
+      allow: workspace !== "legacy",
+    },
+    {
+      to: "/reports",
+      label: "Workspace reports",
+      icon: LayoutDashboard,
+      allow: user.role === "admin" && workspace !== "legacy",
+    },
+    {
+      to: "/legacy",
+      label: "Unassigned history",
+      icon: Layers,
+      allow: user.role === "admin",
+    },
+  );
+  const isFactory = workspace === "factory";
+  const isLegacy = workspace === "legacy";
   return (
-    <SessionProvider user={user}>
+    <SessionProvider user={user} workspace={workspace}>
       <div className="workspace">
         <aside className={"sidebar " + (menu ? "open" : "")}>
           <div className="brand">
@@ -224,6 +297,28 @@ function App() {
               )}
             </span>
             <div className="topbar-right">
+              <label className="workspace-picker">
+                <span>{t("Workspace")}</span>
+                <select
+                  aria-label={t("Workspace")}
+                  value={workspace}
+                  onChange={(e) => enterWorkspace(e.target.value as Workspace)}
+                >
+                  {(user.role === "admin" ||
+                    user.workspace_access === "both" ||
+                    (user.workspace_access || "showroom") === "showroom") && (
+                    <option value="showroom">{t("Showroom")}</option>
+                  )}
+                  {(user.role === "admin" ||
+                    user.workspace_access === "both" ||
+                    user.workspace_access === "factory") && (
+                    <option value="factory">{t("Factory")}</option>
+                  )}
+                  {user.role === "admin" && (
+                    <option value="legacy">{t("Unassigned history")}</option>
+                  )}
+                </select>
+              </label>
               <span className="today">
                 {new Intl.DateTimeFormat(lang === "ar" ? "ar-LB" : "en-GB", {
                   day: "numeric",
@@ -237,11 +332,34 @@ function App() {
               </button>
             </div>
           </header>
-          <main className="content">
+          <main className="content" key={workspace}>
+            <div className="workspace-banner">
+              {t(
+                workspace === "factory"
+                  ? "Factory"
+                  : workspace === "showroom"
+                    ? "Showroom"
+                    : "Unassigned history",
+              )}
+            </div>
             <Routes>
-              <Route path="/" element={<Dashboard />} />
+              <Route
+                path="/"
+                element={isLegacy ? <LegacyHistory /> : <Dashboard />}
+              />
               <Route path="/inventory" element={<Inventory />} />
-              <Route path="/sales" element={<Trades />} />
+              <Route
+                path="/sales"
+                element={
+                  isFactory ? (
+                    <FactorySales />
+                  ) : isLegacy ? (
+                    <LegacyHistory />
+                  ) : (
+                    <Trades />
+                  )
+                }
+              />
               <Route path="/purchases" element={<Trades purchase />} />
               <Route path="/suppliers" element={<Suppliers />} />
               <Route path="/catalog" element={<Catalog />} />
@@ -270,6 +388,52 @@ function App() {
                 element={
                   user.role === "admin" ? (
                     <Staff />
+                  ) : (
+                    <Navigate to="/" replace />
+                  )
+                }
+              />
+              <Route
+                path="/balances"
+                element={
+                  user.role === "admin" && !isLegacy ? (
+                    <BalanceSetup />
+                  ) : (
+                    <Navigate to="/" replace />
+                  )
+                }
+              />
+              <Route
+                path="/production"
+                element={
+                  isFactory && user.role !== "cashier" ? (
+                    <Production />
+                  ) : (
+                    <Navigate to="/" replace />
+                  )
+                }
+              />
+              <Route
+                path="/internal"
+                element={
+                  !isLegacy ? <InternalTrade /> : <Navigate to="/" replace />
+                }
+              />
+              <Route
+                path="/reports"
+                element={
+                  user.role === "admin" && !isLegacy ? (
+                    <WorkspaceReports />
+                  ) : (
+                    <Navigate to="/" replace />
+                  )
+                }
+              />
+              <Route
+                path="/legacy"
+                element={
+                  user.role === "admin" ? (
+                    <LegacyHistory />
                   ) : (
                     <Navigate to="/" replace />
                   )

@@ -121,5 +121,4 @@ async def record_outflow(
     Record a cash outflow for a given location.
     """
     receipt = await record_outflow_service(data, db, user, idempotency_key)
-    await complete_operation(idempotency_key, receipt.id)
     return receipt

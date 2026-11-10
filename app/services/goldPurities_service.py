@@ -28,7 +28,7 @@ async def create_gold_purity(
         purity=gold_purities_data.purity,
         repayment_factor=gold_purities_data.repayment_factor
         or {18: Decimal("0.74"), 21: Decimal("0.865"), 24: Decimal("1")}.get(
-            gold_purities_data.karat, gold_purities_data.purity / Decimal("0.995")
+            gold_purities_data.karat, gold_purities_data.purity / Decimal("100")
         ),
     )
 

@@ -899,6 +899,24 @@ function TradeForm({
     );
   }
 
+  function makingTotal(rows: Values[]) {
+    try {
+      return rows
+        .reduce(
+          (sum, row) =>
+            sum.plus(
+              new Decimal(String(row.weight || 0)).times(
+                String(row.making_charge || 0),
+              ),
+            ),
+          new Decimal(0),
+        )
+        .toFixed(2, Decimal.ROUND_HALF_UP);
+    } catch {
+      return "—";
+    }
+  }
+
   const headerFields: Field[] = [
     locationField,
     ...(customerBulk
@@ -922,7 +940,7 @@ function TradeForm({
       ? [
           product("item"),
           amount("weight", "Weight (g)"),
-          amount("making_charge", "Making charge (USD)"),
+          amount("making_charge", "Making charge (USD/g)"),
           { key: "image_url", label: "Image URL", maxLength: 2048 },
         ]
       : customerBulk
@@ -1087,6 +1105,14 @@ function TradeForm({
           · {t("Converted to 24K debt by item purity")}
         </p>
       )}
+      {kind === "itemPurchase" && (
+        <div className="making-total">
+          <span>{t("Invoice making charge (USD)")}</span>
+          <output aria-label={t("Invoice making charge (USD)")}>
+            {makingTotal(lines)}
+          </output>
+        </div>
+      )}
       {kind === "customerSale" && (
         <div className="scan">
           <input
@@ -1136,6 +1162,14 @@ function TradeForm({
             />
             {(kind === "itemPurchase" || customerBulk) && (
               <ReadOnlyGoldPrice price={linePrice(v.product_id)} />
+            )}
+            {kind === "itemPurchase" && (
+              <div className="making-total">
+                <span>{t("Total making charge (USD)")}</span>
+                <output aria-label={t("Total making charge (USD)")}>
+                  {makingTotal([v])}
+                </output>
+              </div>
             )}
             {kind === "bulkSale" && (
               <ReadOnlyGoldPrice
@@ -1309,7 +1343,10 @@ function TradeDetail({
                             gold_charge_24k: "Gold charge (24K equivalent g)",
                             gold_price_per_gram: "Gold price / gram",
                             cost_per_gram: "Cost / gram",
-                            making_charge: "Making charge (USD)",
+                            making_charge:
+                              purchase && row.gold_charge_in_grams != null
+                                ? "Making charge (USD/g)"
+                                : "Making charge (USD)",
                             sell_price: "Final price (USD)",
                             refund_usd: "Refund (USD)",
                           } as Record<string, string>

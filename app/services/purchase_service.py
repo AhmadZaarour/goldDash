@@ -107,8 +107,8 @@ async def create_item_purchase(
                 ),
             )
 
-            item.owner_cost_usd = (
-                line.weight * (purchase_item.gold_price_per_gram + line.making_charge)
+            item.owner_cost_usd = line.weight * (
+                purchase_item.gold_price_per_gram + line.making_charge
             )
             item.company_cost_usd = item.owner_cost_usd
             if line.photo_token:
@@ -142,7 +142,9 @@ async def create_item_purchase(
             purity_id=canonical.id,
             gold_grams=debt,
             gold_24k=debt,
-            making_usd=sum((line.making_charge for line in purchase_data.items), Decimal(0)),
+            making_usd=sum(
+                (line.weight * line.making_charge for line in purchase_data.items), Decimal(0)
+            ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
             source_key=f"purchase:{purchase.id}:invoice",
             kind="purchase",
             created_by=purchase.created_by,

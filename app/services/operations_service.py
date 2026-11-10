@@ -1,20 +1,29 @@
 """Atomic, auditable operations for independent Factory and Showroom accounts."""
 
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from decimal import Decimal
 
+from fastapi import HTTPException
+from pydantic import BaseModel
 from sqlalchemy import func, select, text
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.workspace import in_workspace
+from app.core.workspace import active_unit, in_workspace
 from app.models import (
     CashEntry,
     GoldPurity,
     InventoryBalance,
     InventoryItem,
     InventoryMovement,
+    InventoryStock,
     PhotoUpload,
+    PurchaseItem,
+    PurchaseStock,
     Sale,
     SaleItem,
+    SaleStock,
+    SupplierLedgerEntry,
 )
 from app.models.operations import (
     InternalInvoice,
@@ -25,9 +34,12 @@ from app.models.operations import (
     ProductionPiece,
 )
 from app.schemas.inventory import InventoryItemCreate
+from app.schemas.operations import LegacyAssignCreate, OperationResult
 from app.services.gold_conversion import allocate_charge, grams24, purchase_factor
 from app.services.gold_price import get_quote, price_per_gram, require_fresh_quote
+from app.services.idempotency import claim_operation, complete_operation
 from app.services.inventory_service import create_item
+from app.services.operations_query_service import LEGACY_MODELS
 from app.services.product_inventory_type import validate_purchase_product
 from app.services.supplier_ledger_service import post_entry
 from app.services.transaction_validation import require_active_supplier
@@ -1052,3 +1064,89 @@ async def reverse_internal_payment(db, payment_id, note, user_id):
         "kind": "internal_payment_reversal",
         "message": "Internal payment reversed",
     }
+
+
+async def execute(
+    db: AsyncSession,
+    user_id: int,
+    name: str,
+    key: str,
+    data: BaseModel,
+    action: Callable[[], Awaitable[dict[str, object]]],
+    *,
+    paired: bool = False,
+) -> OperationResult:
+    """Complete and commit one scoped operation, including any paired resource changes."""
+    receipt, replayed = await claim_operation(db, user_id, name, key, data)
+    if replayed:
+        return OperationResult.model_validate(receipt.response_data)
+    try:
+        with in_workspace(None if paired else active_unit()):
+            result = OperationResult.model_validate(await action())
+            await complete_operation(db, receipt, result)
+        return result
+    except ValueError as error:
+        await db.rollback()
+        raise HTTPException(409, str(error)) from error
+
+
+async def assign_legacy(db: AsyncSession, data: LegacyAssignCreate, user_id: int):
+    model = LEGACY_MODELS[data.kind]
+    row = await db.scalar(select(model).where(model.id == data.id).with_for_update())
+    if row is None or row.unit is not None:
+        raise ValueError("Choose an unassigned historical record")
+    records = [row]
+    if data.kind == "purchase":
+        pieces = list(
+            await db.scalars(select(PurchaseItem).where(PurchaseItem.purchase_id == row.id))
+        )
+        ids = [piece.id for piece in pieces]
+        records += list(
+            await db.scalars(select(InventoryItem).where(InventoryItem.purchase_item_id.in_(ids)))
+        )
+        records += list(
+            await db.scalars(select(PurchaseStock).where(PurchaseStock.purchase_id == row.id))
+        )
+        records += list(
+            await db.scalars(
+                select(SupplierLedgerEntry).where(SupplierLedgerEntry.purchase_id == row.id)
+            )
+        )
+        records += list(await db.scalars(select(CashEntry).where(CashEntry.purchase_id == row.id)))
+        stock_ids = [r.id for r in records if isinstance(r, PurchaseStock)]
+        records += list(
+            await db.scalars(
+                select(InventoryStock).where(InventoryStock.purchase_stock_id.in_(stock_ids))
+            )
+        )
+    if data.kind == "sale":
+        records += list(await db.scalars(select(SaleItem).where(SaleItem.sale_id == row.id)))
+        records += list(await db.scalars(select(SaleStock).where(SaleStock.sale_id == row.id)))
+        records += list(await db.scalars(select(CashEntry).where(CashEntry.sale_id == row.id)))
+        records += list(
+            await db.scalars(
+                select(SupplierLedgerEntry).where(SupplierLedgerEntry.sale_id == row.id)
+            )
+        )
+    if data.kind == "supplier_entry":
+        records += list(
+            await db.scalars(select(CashEntry).where(CashEntry.supplier_entry_id == row.id))
+        )
+    for item in records:
+        if item.unit is not None and item.unit != data.unit:
+            raise ValueError("A linked record belongs to another workspace; review the assignment")
+        item.unit = data.unit
+    location_id = getattr(row, "location_id", None) or data.location_id
+    if location_id is None:
+        raise ValueError("Select a location for the ownership audit record")
+    await lock_locations(db, location_id)
+    doc = await document(
+        db,
+        unit=data.unit,
+        kind="legacy_assignment",
+        location_id=location_id,
+        user_id=user_id,
+        note=data.note,
+        details={"kind": data.kind, "record_id": data.id},
+    )
+    return {"id": doc.id, "kind": "legacy_assignment", "message": "Historical ownership assigned"}

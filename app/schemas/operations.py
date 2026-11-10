@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import AwareDatetime, BaseModel, Field, HttpUrl, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
 Unit = Literal["factory", "showroom"]
 Placement = Literal["factory", "showroom"]
@@ -156,3 +156,10 @@ class LegacyAssignCreate(BaseModel):
 
 class StaffWorkspaceUpdate(BaseModel):
     workspace_access: Literal["factory", "showroom", "both"]
+
+
+class OperationResult(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    id: int
+    kind: str
+    message: str

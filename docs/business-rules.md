@@ -49,7 +49,7 @@ Changing catalog settings does not recalculate completed transactions.
 ### Item purchase invoices
 
 `POST /api/v1/purchases/item` is admin-only and requires `Idempotency-Key`.
-Each line contains product, physical weight, USD making charge and optional
+Each line contains product, physical weight, making charge in USD per physical gram and optional
 external image URL or staged `photo_token`. Purchase gold price is server-calculated,
 not an input: one fresh cached live quote prices the entire invoice. Each line
 uses USD per 24K gram × its purchase valuation factor, rounded to four decimal
@@ -63,7 +63,8 @@ and must equal the sum of the physical item weights; the frontend calculates it.
 Debt is standardized to 24K equivalent: sum each line's weight × purity / 99.5
 (24K weight uses factor 1), then round once to 0.001g, half up. This supports
 mixed-purity invoices without adding unlike weights into a single conversion.
-The invoice posts one gold debt plus its total USD making charges. Gold and USD
+The invoice posts one gold debt plus the sum of each line’s physical weight × its USD/g making rate,
+rounded once to USD cents, half up. Gold and USD
 remain separate obligations. Positive balances mean the shop owes the supplier;
 negative balances mean the supplier owes the shop.
 
@@ -351,7 +352,7 @@ Customer profit uses the **gold price recorded on each sale**, as agreed:
 - Gold value = the piece's purchase `gold_charge_in_grams` × the sale's
   `gold_price_per_gram`. This values the supplier's gold obligation, including
   any gram charge, rather than using the original purchase gold price.
-- Cost of a sold piece = that gold value + its purchase USD making charge.
+- Cost of a sold piece = that gold value + physical purchase weight × its USD/g making rate.
 - Net sales = final collected `sell_price` amounts − customer refunds.
   Discounts are already included in the collected amounts.
 - Returns restore the original sale's gold valuation plus making cost in the
@@ -398,8 +399,8 @@ the test branch. It is separate from supplier debt and the monthly report's
 sale-time gold valuation.
 
 For example, a 10.000 g piece with a purchase gold price of $80/g and a making
-charge value of $15 has a $950.00 base cost under this formula. The value is derived
-rather than stored a second time.
+rate of $15/g has a $950.00 base cost under this formula. New inventory stores the
+acquisition cost snapshot; older pieces without a snapshot use the purchase-line formula.
 It remains tied to the original purchase across transfers, sales, returns and
 resale. Inventory lists/details and each selected customer-sale line show weight
 and base cost for pricing reference. The final selling price remains explicitly
@@ -550,3 +551,28 @@ New routes under `/api/v1/operations` include `overview`, `opening`, `capital`,
 and `staff`. Financial writes require `Idempotency-Key` and preserve original
 results on retries. Factory staff can record production; financial administration
 and cross-workspace transfers require admin. Reports use Asia/Beirut month bounds.
+
+
+## Per-gram purchase making charges and service organization
+
+For supplier item purchases, `making_charge` is a **USD per physical gram** rate.
+A 10g piece at $80/g gold and $5/g making has a $850 cost and creates $50 of
+making debt. Invoice USD making debt sums `weight × making_charge` across all
+pieces and rounds once to cents, half up. Piece costs, historical cost fallbacks,
+monthly trade margins and return cost restoration apply the same physical weight.
+The purchase form and details label the rate USD/g; the form previews its USD total.
+Settlement `making_usd`, internal invoice making amounts and production direct
+costs are already total USD amounts. Their meaning is unchanged.
+
+Existing posted ledger entries and saved acquisition/sale cost snapshots are not
+rewritten by this code update. Historical records without cost snapshots derive
+costs using the purchase making rate. Any correction to previously posted debt
+requires a separately reviewed accounting correction.
+
+`api/v1/operations.py` and `api/v1/supplier_ledger.py` handle HTTP parameters,
+authorization and response models. DTOs live in `schemas/operations.py` and
+`schemas/supplier_ledger.py`. Workspace queries live in
+`services/operations_query_service.py`; transactions and idempotent completion
+remain in `services/operations_service.py`. Supplier balance/settlement/reversal
+logic is in `services/supplier_ledger_service.py`. Financial writes keep their
+existing locks, atomic commits, resource checks and saved retry results.

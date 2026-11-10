@@ -53,17 +53,14 @@ class InventoryItem(UnitOwned, Base):
     def cost_basis_usd(self):
         if self.owner_cost_usd is not None:
             return self.owner_cost_usd
-        line = self.origin_line
-        return line.weight * line.gold_price_per_gram + line.making_charge
+        if self.purchase_item is not None:
+            line = self.purchase_item
+            return line.weight * (line.gold_price_per_gram + line.making_charge)
+        return self.production_piece.total_cost_usd
 
     @property
     def base_cost_usd(self) -> Decimal:
-        if self.owner_cost_usd is not None:
-            return self.owner_cost_usd.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        line = self.origin_line
-        return (line.weight * (line.gold_price_per_gram + line.making_charge)).quantize(
-            Decimal("0.01"), rounding=ROUND_HALF_UP
-        )
+        return self.cost_basis_usd.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     image_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
 

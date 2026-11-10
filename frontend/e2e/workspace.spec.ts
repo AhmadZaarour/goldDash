@@ -641,7 +641,17 @@ test("item purchase uses one invoice gold charge and offers camera upload", asyn
   await expect(
     dialog.getByLabel("Calculated gold price / gram", { exact: true }),
   ).toHaveText("100.0000");
-  await dialog.getByLabel("Making charge (USD)", { exact: true }).fill("5");
+  await dialog.getByLabel("Making charge (USD/g)", { exact: true }).fill(".");
+  await expect(
+    dialog.getByLabel("Total making charge (USD)", { exact: true }),
+  ).toHaveText("—");
+  await dialog.getByLabel("Making charge (USD/g)", { exact: true }).fill("5");
+  await expect(
+    dialog.getByLabel("Invoice making charge (USD)", { exact: true }),
+  ).toHaveText("12.50");
+  await expect(
+    dialog.getByLabel("Total making charge (USD)", { exact: true }),
+  ).toHaveText("12.50");
   await dialog.getByRole("button", { name: "Confirm", exact: true }).click();
   await expect(dialog).toHaveCount(0);
   expect(submitted?.total_gold_charge_grams).toBe("2.5");

@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from zoneinfo import ZoneInfo
 
-from fastapi import HTTPException, Query
+from fastapi import HTTPException
 from sqlalchemy import func, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,11 +18,12 @@ from app.models.sales import Sale
 from app.models.saleStock import SaleStock
 from app.models.supplierLedger import SupplierLedgerEntry
 
+
 async def monthly_profit_service(
     db: AsyncSession,
-    month: str = Query(pattern=r"^\d{4}-(0[1-9]|1[0-2])$"),
-    location_id: int | None = Query(None, gt=0),
-) -> dict[str, int | float]:
+    month: str,
+    location_id: int | None = None,
+) -> dict[str, object]:
     zone = ZoneInfo(settings.report_timezone)
     try:
         year, number = map(int, month.split("-"))
@@ -36,12 +37,13 @@ async def monthly_profit_service(
     # Supplier gold liability is recorded in grams, valued at THIS sale's price.
     # Reversing a return uses its original sale valuation, including on resale.
     gold = PurchaseItem.gold_charge_in_grams * SaleItem.gold_price_per_gram
+    making = PurchaseItem.weight * PurchaseItem.making_charge
     sold = (
         select(
             func.count(SaleItem.id).label("sold_count"),
             func.coalesce(func.sum(SaleItem.sell_price), 0).label("sales"),
             func.coalesce(func.sum(gold), 0).label("gold"),
-            func.coalesce(func.sum(PurchaseItem.making_charge), 0).label("making"),
+            func.coalesce(func.sum(making), 0).label("making"),
         )
         .select_from(SaleItem)
         .join(Sale, Sale.id == SaleItem.sale_id)
@@ -53,7 +55,7 @@ async def monthly_profit_service(
         select(
             func.count(ItemReturn.id).label("returned_count"),
             func.coalesce(func.sum(ItemReturn.refund_usd), 0).label("refunds"),
-            func.coalesce(func.sum(gold + PurchaseItem.making_charge), 0).label("restored"),
+            func.coalesce(func.sum(gold + making), 0).label("restored"),
         )
         .select_from(ItemReturn)
         .join(SaleItem, SaleItem.id == ItemReturn.sale_item_id)

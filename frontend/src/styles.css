@@ -1198,3 +1198,6 @@ fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
 .operations-note { max-width: 65ch; color: #65756e; }
 @media (max-width: 650px) { .workspace-picker > span { display: none; } .workspace-picker select { max-width: 9rem; } .topbar .today { display: none; } }
 .audit-details { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .8rem; background: #f3f5f0; padding: 1rem; border-radius: .5rem; direction: ltr; text-align: left; }
+
+.making-total { display: flex; justify-content: space-between; gap: 1rem; padding: .65rem 0; }
+.making-total output { font-weight: 600; }

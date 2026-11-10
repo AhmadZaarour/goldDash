@@ -28,7 +28,7 @@ def bounds(month):
 
 def legacy_cost(purchase, produced):
     if purchase is not None:
-        return purchase.weight * purchase.gold_price_per_gram + purchase.making_charge
+        return purchase.weight * (purchase.gold_price_per_gram + purchase.making_charge)
     return produced.total_cost_usd if produced is not None else None
 
 

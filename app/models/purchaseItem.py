@@ -44,6 +44,7 @@ class PurchaseItem(Base):
         Numeric(14, 3),
     )
 
+    # USD per physical gram; supplier USD debt uses weight * making_charge.
     making_charge: Mapped[Decimal] = mapped_column(
         Numeric(14, 2),
     )

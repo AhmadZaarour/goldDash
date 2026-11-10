@@ -78,7 +78,7 @@ async def test_100_grams_trade_equations(
         assert [entry.gold_24k for entry in entries] == [Decimal(expected), -Decimal(expected)]
     balance = (await client.get(f"/api/v1/suppliers/{s['supplier']}/balance")).json()
     assert Decimal(balance["gold_24k"]) == Decimal(expected)
-    assert Decimal(balance["making_usd"]) == 50
+    assert Decimal(balance["making_usd"]) == 5000
     factory_balance = (
         await client.get(
             f"/api/v1/suppliers/{s['supplier']}/balance", headers={"X-Business-Unit": "factory"}

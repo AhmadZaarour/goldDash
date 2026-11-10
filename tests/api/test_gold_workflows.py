@@ -126,7 +126,7 @@ async def test_mixed_invoice_keeps_physical_weights_and_snapshots_24k_charges(
     )
     balance = (await client.get(f"/api/v1/suppliers/{s['supplier']}/balance")).json()
     assert Decimal(balance["gold_24k"]) == Decimal("16.332")
-    assert Decimal(balance["making_usd"]) == 10
+    assert Decimal(balance["making_usd"]) == 100
     await client.patch(f"/api/v1/goldpurities/{s['p18']}", json={"purity": "74"})
     assert (await client.get(f"/api/v1/suppliers/{s['supplier']}/balance")).json() == balance
     body["total_gold_charge_grams"] = "21"
@@ -160,7 +160,7 @@ async def test_converted_payment_cash_and_exact_reversal(
     assert paid.status_code == 201, paid.text
     expected = Decimal(before["gold_24k"]) - 2 * Decimal(factor) - Decimal("1.25")
     assert Decimal(paid.json()["gold_24k"]) == expected
-    assert Decimal(paid.json()["making_usd"]) == 7
+    assert Decimal(paid.json()["making_usd"]) == 97
     async with test_session_factory() as db:
         entry = await db.scalar(
             select(SupplierLedgerEntry).where(SupplierLedgerEntry.kind == "settlement")
@@ -254,7 +254,7 @@ async def test_cashier_customer_bulk_is_atomic_retryable_and_has_no_debt(
 async def test_purchase_photo_attachment_and_replay(
     client, test_session_factory, tmp_path, monkeypatch
 ):
-    from app.api.v1.item_photos import settings
+    from app.core.config import settings
 
     monkeypatch.setattr(settings, "item_image_dir", str(tmp_path))
     s = await setup_shop(client, test_session_factory)
@@ -348,7 +348,7 @@ async def test_supplier_items_use_one_live_quote_and_invoice_ledger_total(
         ledger = list(await db.scalars(select(SupplierLedgerEntry)))
         assert len(ledger) == 1
         assert ledger[0].gold_24k == Decimal("75.377")
-        assert ledger[0].making_usd == 50
+        assert ledger[0].making_usd == 500
         assert await db.scalar(select(func.count()).select_from(InventoryItem)) == 10
         assert (
             await db.scalar(

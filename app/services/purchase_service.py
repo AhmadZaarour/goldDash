@@ -108,7 +108,7 @@ async def create_item_purchase(
             )
 
             item.owner_cost_usd = (
-                line.weight * purchase_item.gold_price_per_gram + line.making_charge
+                line.weight * (purchase_item.gold_price_per_gram + line.making_charge)
             )
             item.company_cost_usd = item.owner_cost_usd
             if line.photo_token:

@@ -8,7 +8,7 @@ from app.core.authorization import AdminUser, CashierUser
 from app.core.database import get_db
 from app.core.pagination import paginate
 from app.models.cashLedger import CashEntry
-from app.services.idempotency import IdempotencyKey, claim_operation, complete_operation
+from app.services.idempotency import IdempotencyKey
 from app.schemas.cash import (
     CashEntryResponse,
     CashOutflowCreate,
@@ -93,7 +93,7 @@ async def reconcile(
     Create a cash reconciliation record for a given location and time period.
     """
     record = await reconcile_service(data, db, user)
-    return ReconciliationResponse.from_orm(record)
+    return ReconciliationResponse.model_validate(record)
 
 @router.get("/reconciliations", response_model=list[ReconciliationResponse])
 async def reconciliations(
@@ -108,7 +108,7 @@ async def reconciliations(
     Get a list of cash reconciliation records for a given location.
     """
     result = await reconciliations_service(db, response, location_id, limit, offset)
-    return [ReconciliationResponse.from_orm(record) for record in result]
+    return [ReconciliationResponse.model_validate(record) for record in result]
 
 @router.post("/outflows", response_model=CashEntryResponse, status_code=201)
 async def record_outflow(

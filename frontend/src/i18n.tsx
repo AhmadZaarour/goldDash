@@ -5,7 +5,70 @@ import {
   useState,
   type ReactNode,
 } from "react";
+const en: Record<string, string> = {
+  in_progress: "In progress",
+  finished: "Finished",
+  service_sale: "Service sale",
+};
 const ar: Record<string, string> = {
+  service_sale: "بيع خدمة",
+  "Gross profit including services (USD)":
+    "إجمالي الربح شاملاً الخدمات (دولار)",
+  in_progress: "قيد التنفيذ",
+  finished: "منتهية",
+  "Service sales": "مبيعات الخدمات",
+  "Service sale": "بيع خدمة",
+  "Service details": "تفاصيل الخدمة",
+  "Service not found": "لم يتم العثور على الخدمة",
+  "This service has already been paid": "تم دفع هذه الخدمة مسبقاً",
+  "Finish the service before collecting payment": "أنهِ الخدمة قبل تحصيل الدفع",
+  "Enter the amount collected for this service.":
+    "أدخل المبلغ المقبوض مقابل هذه الخدمة.",
+  "Submit payment": "تسجيل الدفع",
+  "Service payment recorded": "تم تسجيل دفع الخدمة",
+  "Service receipts": "مقبوضات الخدمات",
+  "Collected (USD)": "المبلغ المقبوض (دولار)",
+  "Legacy estimate (USD)": "التقدير السابق (دولار)",
+  Unpaid: "غير مدفوعة",
+  Paid: "مدفوعة",
+  Payment: "الدفع",
+
+  "Scan barcode": "مسح الباركود",
+  Camera: "الكاميرا",
+  "Camera preview": "معاينة الكاميرا",
+  "Starting camera…": "جارٍ تشغيل الكاميرا…",
+  "Camera paused. Tap Try again to resume.":
+    "تم إيقاف الكاميرا مؤقتاً. اضغط حاول مجدداً للاستئناف.",
+  "Point the camera at the barcode. Keep the entire barcode visible and well lit.":
+    "وجّه الكاميرا نحو الباركود، مع إظهاره بالكامل وإضاءة جيدة.",
+  "The camera closes after one scan. Images stay on your device.":
+    "تُغلق الكاميرا بعد مسح واحد. تبقى الصور على جهازك.",
+  "This barcode is not supported. Try another barcode or enter it manually.":
+    "هذا الباركود غير مدعوم. جرّب باركوداً آخر أو أدخله يدوياً.",
+  "Camera scanning requires HTTPS. You can still enter the barcode manually.":
+    "مسح الباركود بالكاميرا يتطلب اتصال HTTPS. يمكنك إدخال الباركود يدوياً.",
+  "Camera access is unavailable on this device. Enter the barcode manually.":
+    "الكاميرا غير متاحة على هذا الجهاز. أدخل الباركود يدوياً.",
+  "Allow camera access in Chrome, then try again.":
+    "اسمح بالوصول إلى الكاميرا في Chrome، ثم حاول مجدداً.",
+  "No camera was found. Choose another camera or enter the barcode manually.":
+    "لم يتم العثور على كاميرا. اختر كاميرا أخرى أو أدخل الباركود يدوياً.",
+  "The camera is busy. Close other apps using it, then try again.":
+    "الكاميرا مشغولة. أغلق التطبيقات الأخرى التي تستخدمها، ثم حاول مجدداً.",
+  "The scanner could not start. Try again or enter the barcode manually.":
+    "تعذّر تشغيل الماسح. حاول مجدداً أو أدخل الباركود يدوياً.",
+  "The camera stopped. Try again or enter the barcode manually.":
+    "توقفت الكاميرا. حاول مجدداً أو أدخل الباركود يدوياً.",
+  "Enter a barcode of 1 to 50 characters.":
+    "أدخل باركوداً من حرف واحد إلى 50 حرفاً.",
+  "This item is already in the sale.":
+    "هذه القطعة موجودة بالفعل في عملية البيع.",
+  "Item added to the sale. Enter its final price.":
+    "تمت إضافة القطعة إلى عملية البيع. أدخل سعرها النهائي.",
+  "Service barcode": "باركود الصيانة",
+  "Find service": "البحث عن صيانة",
+  "No service found. Choose New service to use this barcode.":
+    "لم يتم العثور على صيانة. اختر صيانة جديدة لاستخدام هذا الباركود.",
   Workspace: "مساحة العمل",
   Factory: "المصنع",
   Showroom: "المعرض",
@@ -455,7 +518,7 @@ export function Language({ children }: { children: ReactNode }) {
       value={{
         lang,
         toggle: () => setLang(lang === "en" ? "ar" : "en"),
-        t: (k) => (lang === "ar" ? ar[k] || k : k),
+        t: (k) => (lang === "ar" ? ar[k] || en[k] || k : en[k] || k),
       }}
     >
       {children}

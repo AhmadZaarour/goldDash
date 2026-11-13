@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useId,
   useRef,
   useState,
   type FormEvent,
@@ -62,6 +63,7 @@ export function Modal({
   close: () => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
   const { t } = useLanguage();
   useEffect(() => {
     ref.current?.showModal();
@@ -69,13 +71,14 @@ export function Modal({
   return (
     <dialog
       ref={ref}
+      aria-labelledby={titleId}
       onCancel={(e) => {
         e.preventDefault();
         close();
       }}
     >
       <header>
-        <h2>{t(title)}</h2>
+        <h2 id={titleId}>{t(title)}</h2>
         <button
           className="icon"
           type="button"

@@ -44,6 +44,7 @@ async def summary_service(
     zero = Decimal("0")
 
     return {
+        "service_received_usd": totals.get("service_sale", zero),
         "received_usd": totals.get("sale", zero),
         "refunded_usd": -totals.get("refund", zero),
         "supplier_sent_usd": -totals.get("supplier_sent", zero),

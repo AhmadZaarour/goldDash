@@ -40,6 +40,7 @@ async def entries(
     to_at: AwareDatetime | None = None,
     kind: Literal[
         "sale",
+        "service_sale",
         "refund",
         "supplier_sent",
         "supplier_received",

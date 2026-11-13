@@ -12,6 +12,9 @@ import {
 import Decimal from "decimal.js";
 import { WorkspaceSummary } from "./operations";
 import { DevelopmentReset } from "./development";
+import { ServiceSaleButton } from "./servicing";
+import { BarcodeScanButton } from "./barcode-scanner";
+import { normalizeBarcode } from "./barcode-camera";
 import { ItemCostLabel, SaleItemCost } from "./item-cost";
 import { SupplierSettlement, type SupplierBalance } from "./settlement";
 import {
@@ -869,6 +872,10 @@ function TradeForm({
   const [head, setHead] = useState<Values>({});
   const [lines, setLines] = useState<Values[]>([{}]);
   const [scan, setScan] = useState("");
+  const [barcodeLookup, setBarcodeLookup] = useState(false);
+  const [barcodeMessage, setBarcodeMessage] = useState("");
+  const lookupRequest = useRef<AbortController | null>(null);
+  useEffect(() => () => lookupRequest.current?.abort(), []);
   const [error, setError] = useState<unknown>();
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -970,36 +977,59 @@ function TradeForm({
               amount("discount", "Discount (USD)"),
               amount("sell_price", "Final price (USD)"),
             ];
-  async function addBarcode() {
+  async function addBarcode(value = scan) {
+    if (lookupRequest.current) return;
     setError(undefined);
+    setBarcodeMessage("");
+    const code = normalizeBarcode(value);
+    if (!code) {
+      setError(new Error(t("Enter a barcode of 1 to 50 characters.")));
+      return;
+    }
     if (!head.location_id) {
       setError(new Error(t("Choose a location")));
       return;
     }
+    const controller = new AbortController();
+    lookupRequest.current = controller;
+    setBarcodeLookup(true);
     try {
-      const r = await list("/inventory/items", {
-        barcode: scan,
+      const params = new URLSearchParams({
+        barcode: code,
         status: "in_stock",
         location_id: String(head.location_id),
-        limit: 1,
+        limit: "1",
       });
-      if (!r.rows.length)
+      const rows = await request<Row[]>(`/inventory/items?${params}`, {
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) return;
+      if (!rows.length)
         throw new Error(t("The item was not found at this location."));
-      const id = String(r.rows[0].id);
-      if (lines.some((l) => l.inventory_item_id === id)) return;
-      const next = {
-        inventory_item_id: id,
-        discount: "0",
-        sell_price: "",
-      };
-      setLines(
-        lines.length === 1 && !lines[0].inventory_item_id
-          ? [next]
-          : [...lines, next],
+      const id = String(rows[0].id);
+      setBarcodeMessage(
+        t(
+          lines.some((line) => String(line.inventory_item_id) === id)
+            ? "This item is already in the sale."
+            : "Item added to the sale. Enter its final price.",
+        ),
       );
+      setLines((current) => {
+        if (current.some((line) => String(line.inventory_item_id) === id))
+          return current;
+        const next = { inventory_item_id: id, discount: "0", sell_price: "" };
+        return current.length === 1 && !current[0].inventory_item_id
+          ? [next]
+          : [...current, next];
+      });
       setScan("");
-    } catch (e) {
-      setError(e);
+    } catch (error) {
+      if (!controller.signal.aborted) setError(error);
+    } finally {
+      if (lookupRequest.current === controller) {
+        lookupRequest.current = null;
+        setBarcodeLookup(false);
+      }
     }
   }
   async function submit(e: FormEvent) {
@@ -1060,8 +1090,14 @@ function TradeForm({
         fields={headerFields}
         values={head}
         set={(v) => {
-          if (v.location_id !== head.location_id && kind === "customerSale")
+          if (v.location_id !== head.location_id && kind === "customerSale") {
+            lookupRequest.current?.abort();
+            lookupRequest.current = null;
+            setBarcodeLookup(false);
+            setBarcodeMessage("");
+            setScan("");
             setLines([{}]);
+          }
           setHead(v);
         }}
       />
@@ -1119,6 +1155,8 @@ function TradeForm({
             aria-label={t("Scan or enter barcode")}
             placeholder={t("Scan or enter barcode")}
             value={scan}
+            maxLength={50}
+            disabled={busy || barcodeLookup}
             onChange={(e) => setScan(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
@@ -1131,12 +1169,25 @@ function TradeForm({
             type="button"
             className="secondary"
             onClick={() => void addBarcode()}
+            disabled={busy || barcodeLookup}
           >
-            {t("Add")}
+            {t(barcodeLookup ? "Loading…" : "Add")}
           </button>
+          <BarcodeScanButton
+            disabled={busy || barcodeLookup || !head.location_id}
+            onScan={(barcode) => {
+              setScan(barcode);
+              void addBarcode(barcode);
+            }}
+          />
         </div>
       )}
-      <fieldset disabled={busy || uploading}>
+      {barcodeMessage && (
+        <p role="status" className="notice success">
+          {barcodeMessage}
+        </p>
+      )}
+      <fieldset disabled={busy || uploading || barcodeLookup}>
         {lines.map((v, i) => (
           <section className="line-item" key={i}>
             <div className="section-title">
@@ -1230,7 +1281,11 @@ function TradeForm({
         <span className="muted small">
           {t("Keep this window open and retry after a connection failure.")}
         </span>
-        <button disabled={busy || uploading || !freshQuote || !pricing.data}>
+        <button
+          disabled={
+            busy || uploading || barcodeLookup || !freshQuote || !pricing.data
+          }
+        >
           {t(busy ? "Working…" : "Confirm")}
         </button>
       </footer>
@@ -1432,6 +1487,7 @@ export function Trades({ purchase = false }: { purchase?: boolean }) {
                 {t(purchase ? "Item purchase" : "Customer sale")}
               </button>
             )}
+            {!purchase && can.cashier && <ServiceSaleButton />}
             {!purchase && workspace === "factory" && can.admin && (
               <button
                 className="secondary"
@@ -1475,6 +1531,30 @@ export function Trades({ purchase = false }: { purchase?: boolean }) {
           view={setSelected}
         />
       </section>
+      {!purchase && can.cashier && (
+        <section className="panel">
+          <h2>{t("Service sales")}</h2>
+          <DataList
+            path={"/servicing/sales" + (loc ? `?location_id=${loc}` : "")}
+            local
+            columns={[
+              { key: "id", label: "ID" },
+              { key: "barcode", label: "Barcode" },
+              { key: "location_id", label: "Location" },
+              {
+                key: "amount_usd",
+                label: "Collected (USD)",
+                render: (r) => money(r.amount_usd),
+              },
+              {
+                key: "created_at",
+                label: "Date",
+                render: (r) => date(r.created_at),
+              },
+            ]}
+          />
+        </section>
+      )}
       {action && (
         <Modal
           title={
@@ -1806,6 +1886,7 @@ export function Cash() {
           <div className="stats">
             {[
               ["Customer receipts", "received_usd"],
+              ["Service receipts", "service_received_usd"],
               ["Customer refunds", "refunded_usd"],
               ["Expenses", "expenses_usd"],
               ["Withdrawals", "withdrawals_usd"],
@@ -1948,87 +2029,6 @@ export function Cash() {
               {t("This action records a real cash movement.")}
             </p>
           </Form>
-        </Modal>
-      )}
-    </>
-  );
-}
-
-export function Servicing() {
-  const { t } = useLanguage();
-  const can = useCan();
-  const [editing, setEditing] = useState<Row | null | undefined>();
-  const op = useRef(new Operation());
-  const done = useDone(() => setEditing(undefined));
-  const fields: Field[] = editing
-    ? [
-        { key: "status", label: "Status", required: true },
-        amount("cost", "Cost (USD)"),
-        note,
-      ]
-    : [
-        {
-          key: "customer_id",
-          label: "Customer",
-          type: "select",
-          resource: "customers",
-          required: true,
-        },
-        { key: "barcode", label: "Barcode", required: true, maxLength: 50 },
-        { key: "status", label: "Status", required: true },
-        amount("cost", "Cost (USD)"),
-        note,
-      ];
-  return (
-    <>
-      <PageHead
-        title="Servicing"
-        action={
-          can.employee && (
-            <button onClick={() => setEditing(null)}>
-              <Plus size={17} />
-              {t("New service")}
-            </button>
-          )
-        }
-      />
-      <section className="panel">
-        <DataList
-          path="/servicing"
-          local
-          columns={[
-            { key: "barcode", label: "Barcode" },
-            { key: "customer_id", label: "Customer" },
-            {
-              key: "status",
-              label: "Status",
-              render: (r) => <Badge value={r.status} />,
-            },
-            { key: "cost", label: "Cost (USD)" },
-            { key: "notes", label: "Notes" },
-          ]}
-          edit={can.employee ? setEditing : undefined}
-        />
-      </section>
-      {editing !== undefined && (
-        <Modal
-          title={editing ? "Edit" : "New service"}
-          close={() => setEditing(undefined)}
-        >
-          <Form
-            fields={fields}
-            initial={
-              editing ? clean(editing) : { status: "received", cost: "0" }
-            }
-            submit={(v) =>
-              op.current.send(
-                "/servicing" + (editing ? "/" + editing.id : ""),
-                toPayload(fields, v),
-                editing ? "PATCH" : "POST",
-              )
-            }
-            done={done}
-          />
         </Modal>
       )}
     </>

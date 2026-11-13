@@ -64,43 +64,51 @@ async def test_gold_purity_creation_rejects_invalid_fields(client, change):
     assert (await client.post("/api/v1/goldpurities", json=payload)).status_code == 422
 
 
-async def test_servicing_partial_updates_preserve_cost_and_status(client):
-    customer = await client.post("/api/v1/customers", json={"name": "Service customer"})
-    assert customer.status_code == 201
+async def test_servicing_partial_updates_preserve_notes_and_status(client):
     created = await client.post(
         "/api/v1/servicing",
-        json={
-            "customer_id": customer.json()["id"],
-            "barcode": "REPAIR-VALIDATION",
-            "cost": "12.50",
-            "notes": "Needs polishing",
-        },
+        json={"notes": "Needs polishing"},
+        headers={"Idempotency-Key": "create-validation"},
     )
-    assert created.status_code == 201
-    url = f"/api/v1/servicing/{created.json()['id']}"
-    updated = await client.patch(url, json={"status": " completed "})
+    assert created.status_code == 201, created.text
+    record = created.json()
+    url = f"/api/v1/servicing/{record['id']}"
+    updated = await client.patch(url, json={"status": "finished"})
     assert updated.status_code == 200
-    assert updated.json()["status"] == "completed"
-    assert Decimal(updated.json()["cost"]) == Decimal("12.50")
+    assert updated.json()["status"] == "finished"
+    assert updated.json()["notes"] == "Needs polishing"
     notes_only = await client.patch(url, json={"notes": None})
     assert notes_only.status_code == 200
+    assert notes_only.json()["status"] == "finished"
     assert notes_only.json()["notes"] is None
-    assert notes_only.json()["status"] == "completed"
-    assert Decimal(notes_only.json()["cost"]) == Decimal("12.50")
     for invalid in [
-        {"cost": None},
         {"status": None},
-        {"status": "   "},
-        {"cost": "-0.01"},
-        {"cost": "1.234"},
-        {"cost": "1000000000000.00"},
+        {"status": ""},
+        {"status": "received"},
+        {"notes": "x" * 201},
+        {"cost": "15"},
+        {"barcode": "MANUAL"},
     ]:
         assert (await client.patch(url, json=invalid)).status_code == 422
-    assert (await client.get("/api/v1/servicing/REPAIR-VALIDATION")).json() == notes_only.json()
+    assert (await client.get(f"/api/v1/servicing/{record['barcode']}")).json() == notes_only.json()
 
 
-@pytest.mark.parametrize("cost", ["-0.01", "1.234", "1000000000000.00"])
-async def test_service_creation_rejects_invalid_usd_values(client, cost):
-    customer = await client.post("/api/v1/customers", json={"name": "Service customer"})
-    payload = {"customer_id": customer.json()["id"], "barcode": "INVALID-COST", "cost": cost}
-    assert (await client.post("/api/v1/servicing", json=payload)).status_code == 422
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"status": "received"},
+        {"status": None},
+        {"barcode": "MANUAL"},
+        {"cost": "12.50"},
+        {"customer_id": 1},
+        {"notes": "x" * 201},
+    ],
+)
+async def test_service_creation_rejects_old_or_invalid_inputs(client, payload):
+    assert (
+        await client.post(
+            "/api/v1/servicing",
+            json=payload,
+            headers={"Idempotency-Key": "invalid"},
+        )
+    ).status_code == 422

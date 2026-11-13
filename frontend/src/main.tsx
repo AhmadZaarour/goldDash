@@ -1,3 +1,4 @@
+import { Servicing } from "./servicing";
 import "@fontsource/dm-sans/latin-400.css";
 import "@fontsource/dm-sans/latin-600.css";
 import "@fontsource/noto-sans-arabic/arabic-400.css";
@@ -50,7 +51,6 @@ import {
   Suppliers,
   Cash,
   Catalog,
-  Servicing,
   Staff,
 } from "./pages";
 import {
@@ -193,7 +193,7 @@ function App() {
       to: "/servicing",
       label: "Servicing",
       icon: Wrench,
-      allow: user.role !== "cashier",
+      allow: true,
     },
     {
       to: "/staff",
@@ -373,16 +373,7 @@ function App() {
                   )
                 }
               />
-              <Route
-                path="/servicing"
-                element={
-                  user.role !== "cashier" ? (
-                    <Servicing />
-                  ) : (
-                    <Navigate to="/" replace />
-                  )
-                }
-              />
+              <Route path="/servicing" element={<Servicing />} />
               <Route
                 path="/staff"
                 element={

@@ -1201,3 +1201,14 @@ fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
 
 .making-total { display: flex; justify-content: space-between; gap: 1rem; padding: .65rem 0; }
 .making-total output { font-weight: 600; }
+
+.scan { flex-wrap: wrap; align-items: center; }
+.scan > input { flex: 1 1 180px; min-width: 0; }
+.scan > button { flex-shrink: 0; }
+.barcode-camera { display: grid; gap: 14px; }
+.barcode-camera p { margin: 0; }
+.barcode-camera-preview { position: relative; overflow: hidden; border-radius: 10px; background: #102c2b; min-height: 190px; }
+.barcode-camera-preview video { display: block; width: 100%; max-height: 50dvh; min-height: 190px; object-fit: contain; }
+.barcode-camera-state { position: absolute; inset: 0; display: grid; place-items: center; padding: 20px; color: #fff; text-align: center; background: #102c2b80; }
+.barcode-camera > label { display: grid; gap: 6px; }
+.barcode-camera .notice { margin: 0; }

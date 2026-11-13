@@ -7,6 +7,7 @@ class CashEntryResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
     location_id: int
+    service_sale_id: int | None
     sale_id: int | None
     return_id: int | None
     supplier_entry_id: int | None
@@ -50,6 +51,7 @@ class ReconciliationResponse(BaseModel):
     created_at: datetime
 
 class CashSummaryResponse(BaseModel):
+    service_received_usd: Decimal
     received_usd: Decimal
     refunded_usd: Decimal
     supplier_sent_usd: Decimal

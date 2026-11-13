@@ -6,6 +6,8 @@ Fonts are bundled locally. No external font or analytics service is required.
 
 ## Start
 
+Use Node.js 24 or newer for the frontend build and its bundled barcode decoder.
+
 From the repository root, start PostgreSQL/Redis, apply migrations and bootstrap
 an admin as described in the root README. Then run:
 
@@ -163,3 +165,47 @@ records internal supplies once and moves actual gold/cash on payment. Workspace
 reports offer separate margins and combined profit excluding internal trade.
 Unassigned history lets admins explicitly classify pre-migration records.
 See the root business-rules document for cost, conversion and cutover details.
+
+
+## Camera barcode scanning
+
+Customer sales include **Scan barcode** after choosing a location. The camera
+prefers the rear lens; operators can select another detected camera. A successful
+scan closes the camera, looks up an available piece in the current workspace and
+location, and adds it once. Final price entry and sale confirmation remain manual.
+Changing the sale location cancels a pending barcode lookup. Manual barcode entry
+is available alongside the camera button.
+
+Servicing intake generates a unique `SV…` barcode automatically. Staff enter only
+optional notes and a work status (**In progress** or **Finished**). After saving,
+the service details display the generated barcode. Staff can scan or manually
+look up an existing job to update it.
+
+**Service sale**, available to admins and cashiers in both Sales and Servicing,
+looks up a job using the camera or manual barcode entry. Enter the amount collected
+in **Cost (USD)** and submit. A single active location is selected automatically;
+otherwise choose the drawer location. Only finished, unpaid jobs can be checked out.
+Payment creates a saved service sale and one cash entry in the active workspace.
+Paid jobs cannot be edited or collected twice. Service income appears separately
+in drawer summaries and monthly reports; operating expenses remain separate.
+Old customer links, barcodes and cost estimates are retained without creating
+payments. The migration preserves each original status in `legacy_status` and maps
+completed/finished/delivered/done to Finished, other statuses to In progress.
+
+Camera access requires a secure browser context: use HTTPS on phones/tablets;
+localhost works for desktop development. Plain HTTP to a LAN address does not
+provide camera access. The scanner handles denied permissions, missing/busy cameras
+and retries. It stops camera tracks after a read, on close, when switching cameras,
+when the page is backgrounded and when its screen is unmounted. Returning to a
+backgrounded scanner requires an explicit retry.
+
+Supported formats include Code 128, Code 39, Code 93, EAN-13/8, UPC-A/E and ITF.
+The decoder is loaded on demand from the app's own assets and processes frames
+locally. Camera frames are not uploaded or saved. Scanned values retain their case
+and internal characters; empty, control-character and over-50-character values are
+rejected. Barcode printing and printer integration are separate work.
+
+Browser tests supply real generated Code 128 frames through a simulated camera;
+they exercise the actual decoder, lookup, repeated scans and camera controls on
+desktop and mobile Chromium. Before deployment, test focus, lighting, permission
+prompts and printed label readability on the staff's actual phones and tablets.

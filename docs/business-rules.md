@@ -13,7 +13,9 @@ cashier accounts using `POST /api/v1/auth/register`; bootstrap administrators wi
 | Edit catalog, suppliers, locations, purities and products | Admin |
 | Create purchases, bulk sales to suppliers, supplier settlements/reversals | Admin |
 | Customer sales, item returns and walk-in bulk purchases | Cashier or admin |
-| Item/stock transfers, images and servicing | Employee or admin |
+| Item/stock transfers, images and service intake/status | Employee or admin |
+| Service checkout / service payment history | Cashier or admin |
+| Service lookup | Any signed-in staff member |
 | Read cash entries and totals | Cashier or admin |
 | Record/read cash reconciliations | Admin |
 
@@ -576,3 +578,48 @@ authorization and response models. DTOs live in `schemas/operations.py` and
 remain in `services/operations_service.py`. Supplier balance/settlement/reversal
 logic is in `services/supplier_ledger_service.py`. Financial writes keep their
 existing locks, atomic commits, resource checks and saved retry results.
+
+
+## Camera barcode lookup
+
+Scanning selects an inventory piece or service record; it does not post a sale,
+refund, service job or cash movement. Customer-sale lookup remains exact, limited
+to `in_stock` pieces at the chosen location in the active workspace. A duplicate
+scan retains the existing sale line and its manually entered price. Missing stock
+is reported without adding a piece.
+
+`GET /api/v1/servicing?barcode=...` optionally filters service records by exact
+barcode (1–50 characters). Query parameters support reserved characters such as
+slashes without changing identifiers. Existing unfiltered service lists and
+barcode-path reads retain their behavior. Workspace and role checks remain in
+force. Staff explicitly save edits and cashiers explicitly submit payment after scanning.
+
+
+## Service intake and checkout
+
+Service intake accepts optional notes (200 characters maximum) and `in_progress`
+(default) or `finished` status. The server generates a unique `SV` barcode; no
+customer, barcode or price entry is required or accepted at intake. Creation uses
+`Idempotency-Key`, so a lost response can be retried without creating another job.
+
+Admins/employees create and update jobs; all staff can look up jobs in their own
+workspace. Admins/cashiers collect payment through `POST /servicing/sales`, sending
+barcode, active location and `cost` (the amount collected in USD, not an expense).
+The amount must be nonnegative and have at most two decimal places. No gold price
+is needed. A job must be finished and unpaid. Location and job locks serialize
+checkout; a unique service-sale link and unique cash source prevent duplicates.
+Checkout uses a saved idempotent response and commits sale, receipt and cash entry
+atomically. Paid service records cannot be edited or reopened.
+
+Service receipts increase the selected workspace/location's cash drawer using
+`service_sale` entries. Summaries show `service_received_usd`; monthly reports
+include service income once on the collection date, including company reports.
+No service cost is inferred from the amount collected: costs remain separately
+recorded operating expenses. Service income is broken out from item revenue.
+
+Migration `f12026service` makes old customer links optional, preserves barcodes and
+legacy cost estimates, and saves original statuses in `legacy_status`. Statuses
+finished/completed/delivered/done (ignoring case/outer whitespace) become finished;
+other statuses become in_progress. It does not infer historical payments or create
+cash receipts from estimates. Downgrade refuses to discard new checkout/intake
+activity. Deploy with `alembic upgrade head` before running the updated app.

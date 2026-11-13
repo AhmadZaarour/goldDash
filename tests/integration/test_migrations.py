@@ -173,3 +173,87 @@ async def test_blank_database_upgrade_downgrade_and_replay():
             await migrate("check")
         finally:
             admin.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(name)))
+
+
+async def test_service_migration_preserves_estimates_and_original_statuses():
+    name = f"goldshop_migration_test_{uuid4().hex[:12]}"
+    url = make_url(settings.test_database_url)
+    admin_url = url.set(drivername="postgresql", database="postgres").render_as_string(
+        hide_password=False
+    )
+    migration_url = url.set(database=name).render_as_string(hide_password=False)
+    connection_url = url.set(drivername="postgresql", database=name).render_as_string(
+        hide_password=False
+    )
+
+    async def migrate(*args, expected=0):
+        result = await asyncio.to_thread(
+            subprocess.run,
+            [str(PROJECT_ROOT / ".venv/bin/alembic"), *args],
+            cwd=PROJECT_ROOT,
+            env=dict(os.environ, DATABASE_URL=migration_url),
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == expected, result.stderr
+        return result
+
+    with psycopg.connect(admin_url, autocommit=True) as admin:
+        admin.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
+        try:
+            await migrate("upgrade", "e91357f0c122")
+            with psycopg.connect(connection_url) as conn:
+                customer = conn.execute(
+                    "INSERT INTO customers (name) VALUES ('Legacy service customer') RETURNING id"
+                ).fetchone()[0]
+                conn.execute(
+                    'INSERT INTO "inventoryServices" '
+                    '(customer_id, barcode, status, cost, notes, unit) '
+                    "VALUES (%s, 'OLD-READY', ' Completed ', 42.50, 'Original notes', 'showroom'), "
+                    "(%s, 'OLD-WORKING', 'received', 10, NULL, NULL)",
+                    (customer, customer),
+                )
+            await migrate("upgrade", "head")
+            with psycopg.connect(connection_url) as conn:
+                records = conn.execute(
+                    "SELECT barcode, status, legacy_status, cost, notes, customer_id, unit "
+                    'FROM "inventoryServices" ORDER BY barcode'
+                ).fetchall()
+                assert records == [
+                    (
+                        "OLD-READY",
+                        "finished",
+                        " Completed ",
+                        Decimal("42.50"),
+                        "Original notes",
+                        customer,
+                        "showroom",
+                    ),
+                    (
+                        "OLD-WORKING",
+                        "in_progress",
+                        "received",
+                        Decimal("10.00"),
+                        None,
+                        customer,
+                        None,
+                    ),
+                ]
+                assert conn.execute("SELECT count(*) FROM service_sales").fetchone()[0] == 0
+                assert conn.execute("SELECT count(*) FROM cash_entries").fetchone()[0] == 0
+            await migrate("downgrade", "e91357f0c122")
+            with psycopg.connect(connection_url) as conn:
+                assert dict(conn.execute('SELECT barcode, status FROM "inventoryServices"')) == {
+                    "OLD-READY": " Completed ",
+                    "OLD-WORKING": "received",
+                }
+            await migrate("upgrade", "head")
+            with psycopg.connect(connection_url) as conn:
+                conn.execute(
+                    'INSERT INTO "inventoryServices" (barcode, status, cost, unit) '
+                    "VALUES ('NEW-SERVICE', 'in_progress', 0, 'factory')"
+                )
+            failure = await migrate("downgrade", "e91357f0c122", expected=1)
+            assert "Cannot downgrade with new servicing activity" in failure.stderr
+        finally:
+            admin.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(name)))

@@ -7,7 +7,7 @@ from app.models.goldPurities import GoldPurity
 from app.models.inventoryBalance import InventoryBalance
 from app.models.inventoryItem import InventoryItem
 from app.models.inventoryMovement import InventoryMovement
-from app.models.inventoryServicing import InventoryService
+from app.models.inventoryServicing import InventoryService, ServiceSale
 from app.models.inventoryStock import InventoryStock
 from app.models.itemReturn import ItemReturn
 from app.models.location import Location
@@ -56,6 +56,7 @@ __all__ = [
     "InventoryItem",
     "InventoryMovement",
     "InventoryService",
+    "ServiceSale",
     "InventoryStock",
     "Location",
     "Product",

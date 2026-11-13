@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.models import Location
 from app.models.cashLedger import CashEntry
 from app.models.inventoryItem import InventoryItem
+from app.models.inventoryServicing import ServiceSale
 from app.models.itemReturn import ItemReturn
 from app.models.purchase import Purchase
 from app.models.purchaseItem import PurchaseItem
@@ -94,7 +95,15 @@ async def monthly_profit_service(
         .group_by(SupplierLedgerEntry.purity_id)
         .order_by(SupplierLedgerEntry.purity_id)
     )
+    service_revenue = select(func.coalesce(func.sum(ServiceSale.amount_usd), 0)).where(
+        ServiceSale.created_at >= start, ServiceSale.created_at < end
+    )
+    service_count = select(func.count(ServiceSale.id)).where(
+        ServiceSale.created_at >= start, ServiceSale.created_at < end
+    )
     if location_id is not None:
+        service_revenue = service_revenue.where(ServiceSale.location_id == location_id)
+        service_count = service_count.where(ServiceSale.location_id == location_id)
         sold = sold.where(Sale.location_id == location_id)
         # Attribute a return to the original sale location for margin reporting.
         returns = returns.where(Sale.location_id == location_id)
@@ -106,7 +115,13 @@ async def monthly_profit_service(
     row = (
         (
             await db.execute(
-                select(sold, returns, expenses.scalar_subquery().label("expenses"))
+                select(
+                    sold,
+                    returns,
+                    expenses.scalar_subquery().label("expenses"),
+                    service_revenue.scalar_subquery().label("services"),
+                    service_count.scalar_subquery().label("service_count"),
+                )
                 .select_from(sold)
                 .join(returns, true())
             )
@@ -121,12 +136,15 @@ async def monthly_profit_service(
     revenue, refunded = money(row["sales"]), money(row["refunds"])
     gold_value, making, restored = map(money, (row["gold"], row["making"], row["restored"]))
     cost = gold_value + making - restored
-    gross = revenue - refunded - cost
+    service_income = money(row["services"])
+    gross = revenue - refunded - cost + service_income
     expense = money(row["expenses"])
     return dict(
         month=month,
         timezone=settings.report_timezone,
         location_id=location_id,
+        service_sales_usd=service_income,
+        service_sales_count=row["service_count"],
         customer_sales_count=row["sold_count"],
         returned_items_count=row["returned_count"],
         sales_usd=revenue,

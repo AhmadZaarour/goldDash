@@ -14,6 +14,8 @@ import {
 interface ProfitReport {
   month: string;
   timezone: string;
+  service_sales_usd: string;
+  service_sales_count: number;
   customer_sales_count: number;
   returned_items_count: number;
   sales_usd: string;
@@ -100,7 +102,10 @@ export function MonthlyProfitView() {
             {(
               [
                 ["Estimated net profit (USD)", data.net_profit_usd],
-                ["Gross customer profit (USD)", data.gross_profit_usd],
+                [
+                  "Gross profit including services (USD)",
+                  data.gross_profit_usd,
+                ],
                 ["Shop expenses (USD)", data.expenses_usd],
               ] as const
             ).map(([label, value]) => (
@@ -118,6 +123,7 @@ export function MonthlyProfitView() {
             {(
               [
                 ["Customer sales collected", data.sales_usd],
+                ["Service receipts", data.service_sales_usd],
                 ["Less customer refunds", data.refunds_usd],
                 ["Net customer sales", data.net_sales_usd],
                 ["Gold value at sale", data.gold_value_usd],

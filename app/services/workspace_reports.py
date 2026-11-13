@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from app.core.config import settings
 from app.core.workspace import in_workspace
 from app.models import CashEntry, InventoryItem, ItemReturn, PurchaseItem, Sale, SaleItem, SaleStock
+from app.models.inventoryServicing import ServiceSale
 from app.models.operations import InternalInvoice, ProductionPiece
 
 ZERO = Decimal(0)
@@ -59,7 +60,11 @@ async def unit_report(db, unit, start, end, location_id=None, *, company=False):
         expenses = select(func.coalesce(-func.sum(CashEntry.amount_usd), 0)).where(
             CashEntry.kind == "expense", CashEntry.created_at >= start, CashEntry.created_at < end
         )
+        services = select(
+            func.coalesce(func.sum(ServiceSale.amount_usd), 0), func.count(ServiceSale.id)
+        ).where(ServiceSale.created_at >= start, ServiceSale.created_at < end)
         if location_id:
+            services = services.where(ServiceSale.location_id == location_id)
             sales = sales.where(Sale.location_id == location_id)
             returns = returns.where(Sale.location_id == location_id)
             bulk = bulk.where(Sale.location_id == location_id)
@@ -91,6 +96,7 @@ async def unit_report(db, unit, start, end, location_id=None, *, company=False):
                 revenue += line.gold_charge_in_grams * line.gold_price_per_gram + line.making_charge
                 cost += line.cost_usd
             count += 1
+        service_revenue, service_count = (await db.execute(services)).one()
         expense = await db.scalar(expenses)
     internal_revenue, internal_cost = ZERO, ZERO
     if unit == "factory" and not company:
@@ -101,10 +107,12 @@ async def unit_report(db, unit, start, end, location_id=None, *, company=False):
         if location_id:
             statement = statement.where(InternalInvoice.factory_location_id == location_id)
         internal_revenue, internal_cost = (await db.execute(statement)).one()
-    total_revenue = revenue - refunds + internal_revenue
+    total_revenue = revenue - refunds + internal_revenue + service_revenue
     total_cost = cost - restored + internal_cost
     return {
         "unit": unit,
+        "service_sales_usd": money(service_revenue),
+        "service_sales_count": service_count,
         "external_sales_usd": money(revenue),
         "refunds_usd": money(refunds),
         "internal_sales_usd": money(internal_revenue),
@@ -132,6 +140,8 @@ async def profit_report(db, month, unit, location_id=None):
                 key: sum((row[key] for row in rows), ZERO)
                 for key in [
                     "external_sales_usd",
+                    "service_sales_usd",
+                    "service_sales_count",
                     "refunds_usd",
                     "internal_sales_usd",
                     "revenue_usd",

@@ -19,6 +19,8 @@ class MonthlyProfit(BaseModel):
     month: str
     timezone: str
     location_id: int | None
+    service_sales_usd: Decimal
+    service_sales_count: int
     customer_sales_count: int
     returned_items_count: int
     sales_usd: Decimal

@@ -3,15 +3,25 @@
 from app.models.cashLedger import CashEntry, CashReconciliation
 from app.models.categories import Category
 from app.models.customers import Customer
+from app.models.factory import FactoryWeightLine, FinishedGoldLot
+from app.models.goldPriceSettings import GoldPriceSettings
 from app.models.goldPurities import GoldPurity
 from app.models.inventoryBalance import InventoryBalance
 from app.models.inventoryItem import InventoryItem
 from app.models.inventoryMovement import InventoryMovement
-from app.models.inventoryServicing import InventoryService
+from app.models.inventoryServicing import InventoryService, ServiceSale
 from app.models.inventoryStock import InventoryStock
 from app.models.itemReturn import ItemReturn
 from app.models.location import Location
 from app.models.operationReceipt import OperationReceipt
+from app.models.operations import (
+    InternalInvoice,
+    InternalInvoiceLine,
+    InternalPayment,
+    OperationDocument,
+    ProductionBatch,
+    ProductionPiece,
+)
 from app.models.photoUpload import PhotoUpload
 from app.models.product import Product
 from app.models.purchase import Purchase
@@ -28,6 +38,14 @@ from app.models.suppliers import Supplier
 from app.models.user import User, UserRole
 
 __all__ = [
+    "FactoryWeightLine",
+    "FinishedGoldLot",
+    "OperationDocument",
+    "ProductionBatch",
+    "ProductionPiece",
+    "InternalInvoice",
+    "InternalInvoiceLine",
+    "InternalPayment",
     "PhotoUpload",
     "OperationReceipt",
     "CashEntry",
@@ -38,10 +56,12 @@ __all__ = [
     "Category",
     "Customer",
     "GoldPurity",
+    "GoldPriceSettings",
     "InventoryBalance",
     "InventoryItem",
     "InventoryMovement",
     "InventoryService",
+    "ServiceSale",
     "InventoryStock",
     "Location",
     "Product",

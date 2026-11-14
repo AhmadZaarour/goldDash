@@ -5,6 +5,7 @@ from sqlalchemy import ForeignKey, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+from app.core.workspace import UnitOwned
 
 
 class StockFor(StrEnum):
@@ -12,7 +13,7 @@ class StockFor(StrEnum):
     SHOWROOM = "showroom"
 
 
-class PurchaseStock(Base):
+class PurchaseStock(UnitOwned, Base):
     __tablename__ = "purchaseStocks"
 
     id: Mapped[int] = mapped_column(

@@ -35,6 +35,7 @@ async def create_user(
         username=user_data.username,
         password_hash=hash_password(user_data.password),
         role=user_data.role,
+        workspace_access=user_data.workspace_access,
     )
 
     db.add(user)

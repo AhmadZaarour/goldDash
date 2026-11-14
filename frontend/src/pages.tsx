@@ -10,19 +10,25 @@ import {
   Users,
 } from "lucide-react";
 import Decimal from "decimal.js";
+import { WorkspaceSummary } from "./operations";
 import { DevelopmentReset } from "./development";
+import { ShowroomReceipts } from "./factory";
+import { ServiceSaleButton } from "./servicing";
+import { BarcodeScanButton } from "./barcode-scanner";
+import { normalizeBarcode } from "./barcode-camera";
 import { ItemCostLabel, SaleItemCost } from "./item-cost";
 import { SupplierSettlement, type SupplierBalance } from "./settlement";
 import {
   GoldPrice,
   useGoldQuote,
+  customerQuote,
   gramPrice,
   type GoldQuote,
 } from "./gold-price";
 import { MonthlyProfitView } from "./profit";
 import { all, get, request, raw, list, Operation, type Row } from "./api";
 import { useLanguage } from "./i18n";
-import { useCan, useUser } from "./session";
+import { useCan, useUser, useWorkspace } from "./session";
 import {
   DataList,
   Modal,
@@ -149,6 +155,7 @@ export function Photo({ url }: { url: unknown }) {
 }
 
 export function Dashboard() {
+  const workspace = useWorkspace();
   const { t } = useLanguage();
   const u = useUser();
   const can = useCan();
@@ -210,7 +217,8 @@ export function Dashboard() {
         </div>
       </div>
       <GoldPrice />
-      {can.admin && <MonthlyProfitView />}
+      {can.admin && workspace === "showroom" && <MonthlyProfitView />}
+      <WorkspaceSummary showPieces={false} />
       <section className="panel">
         <h2>{t("Quick actions")}</h2>
         <div className="quick-links">
@@ -484,6 +492,7 @@ export function Inventory() {
           )
         }
       />
+      <ShowroomReceipts />
       <div className="tabs">
         {["Items", "Bulk balances", "Returns", "Transfers"].map((v) => (
           <button
@@ -860,16 +869,31 @@ function TradeForm({
 }) {
   const { t } = useLanguage();
   const purchase = kind.endsWith("Purchase");
+  const workspace = useWorkspace();
   const customerBulk = kind === "customerBulkPurchase";
   const bulk = kind.startsWith("bulk") || customerBulk;
   const [head, setHead] = useState<Values>({});
   const [lines, setLines] = useState<Values[]>([{}]);
   const [scan, setScan] = useState("");
+  const [barcodeLookup, setBarcodeLookup] = useState(false);
+  const [barcodeMessage, setBarcodeMessage] = useState("");
+  const lookupRequest = useRef<AbortController | null>(null);
+  useEffect(() => () => lookupRequest.current?.abort(), []);
   const [error, setError] = useState<unknown>();
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const op = useRef(new Operation());
   const quote = useGoldQuote();
+  const pricedQuote = customerBulk
+    ? customerQuote(quote.data, "buy")
+    : kind === "customerSale"
+      ? customerQuote(quote.data, "sell")
+      : quote.data;
+  const profileError = customerBulk
+    ? quote.data?.customer_buy?.error
+    : kind === "customerSale"
+      ? quote.data?.customer_sell?.error
+      : undefined;
   const pricing = useQuery({
     queryKey: ["list", "purchase-pricing"],
     queryFn: async () => {
@@ -881,18 +905,36 @@ function TradeForm({
     },
   });
   const freshQuote =
-    !!quote.data &&
-    !quote.data.stale &&
+    !!pricedQuote &&
+    !pricedQuote.stale &&
     !quote.isError &&
-    Date.now() - Date.parse(quote.data.fetched_at) < 30_000;
+    Date.now() - Date.parse(pricedQuote.fetched_at) < 30_000;
   function linePrice(productId: unknown) {
     const p = pricing.data?.products.find(
       (p) => String(p.id) === String(productId),
     );
     return gramPrice(
-      quote.data,
+      pricedQuote,
       pricing.data?.purities.find((k) => k.id === p?.purity_id),
     );
+  }
+
+  function makingTotal(rows: Values[]) {
+    try {
+      return rows
+        .reduce(
+          (sum, row) =>
+            sum.plus(
+              new Decimal(String(row.weight || 0)).times(
+                String(row.making_charge || 0),
+              ),
+            ),
+          new Decimal(0),
+        )
+        .toFixed(2, Decimal.ROUND_HALF_UP);
+    } catch {
+      return "—";
+    }
   }
 
   const headerFields: Field[] = [
@@ -918,19 +960,12 @@ function TradeForm({
       ? [
           product("item"),
           amount("weight", "Weight (g)"),
-          amount("making_charge", "Making charge (USD)"),
+          amount("making_charge", "Making charge (USD/g)"),
           { key: "image_url", label: "Image URL", maxLength: 2048 },
         ]
       : customerBulk
         ? [
             product("bulk"),
-            {
-              key: "placement",
-              label: "Placement",
-              type: "select",
-              options: ["factory", "showroom"],
-              required: true,
-            },
             amount("weight", "Weight (g)"),
             amount("paid_usd", "Total paid (USD)"),
           ]
@@ -955,36 +990,59 @@ function TradeForm({
               amount("discount", "Discount (USD)"),
               amount("sell_price", "Final price (USD)"),
             ];
-  async function addBarcode() {
+  async function addBarcode(value = scan) {
+    if (lookupRequest.current) return;
     setError(undefined);
+    setBarcodeMessage("");
+    const code = normalizeBarcode(value);
+    if (!code) {
+      setError(new Error(t("Enter a barcode of 1 to 50 characters.")));
+      return;
+    }
     if (!head.location_id) {
       setError(new Error(t("Choose a location")));
       return;
     }
+    const controller = new AbortController();
+    lookupRequest.current = controller;
+    setBarcodeLookup(true);
     try {
-      const r = await list("/inventory/items", {
-        barcode: scan,
+      const params = new URLSearchParams({
+        barcode: code,
         status: "in_stock",
         location_id: String(head.location_id),
-        limit: 1,
+        limit: "1",
       });
-      if (!r.rows.length)
+      const rows = await request<Row[]>(`/inventory/items?${params}`, {
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) return;
+      if (!rows.length)
         throw new Error(t("The item was not found at this location."));
-      const id = String(r.rows[0].id);
-      if (lines.some((l) => l.inventory_item_id === id)) return;
-      const next = {
-        inventory_item_id: id,
-        discount: "0",
-        sell_price: "",
-      };
-      setLines(
-        lines.length === 1 && !lines[0].inventory_item_id
-          ? [next]
-          : [...lines, next],
+      const id = String(rows[0].id);
+      setBarcodeMessage(
+        t(
+          lines.some((line) => String(line.inventory_item_id) === id)
+            ? "This item is already in the sale."
+            : "Item added to the sale. Enter its final price.",
+        ),
       );
+      setLines((current) => {
+        if (current.some((line) => String(line.inventory_item_id) === id))
+          return current;
+        const next = { inventory_item_id: id, discount: "0", sell_price: "" };
+        return current.length === 1 && !current[0].inventory_item_id
+          ? [next]
+          : [...current, next];
+      });
       setScan("");
-    } catch (e) {
-      setError(e);
+    } catch (error) {
+      if (!controller.signal.aborted) setError(error);
+    } finally {
+      if (lookupRequest.current === controller) {
+        lookupRequest.current = null;
+        setBarcodeLookup(false);
+      }
     }
   }
   async function submit(e: FormEvent) {
@@ -1011,7 +1069,8 @@ function TradeForm({
             line.photo_token = lines[index].photo_token;
         });
       }
-      if (customerBulk) Object.assign(payload, converted[0]);
+      if (customerBulk)
+        Object.assign(payload, converted[0], { placement: workspace });
       if (kind === "bulkSale") delete payload.supplier_id;
       if (customerBulk) {
         /* flat request; no customer identity */
@@ -1044,8 +1103,14 @@ function TradeForm({
         fields={headerFields}
         values={head}
         set={(v) => {
-          if (v.location_id !== head.location_id && kind === "customerSale")
+          if (v.location_id !== head.location_id && kind === "customerSale") {
+            lookupRequest.current?.abort();
+            lookupRequest.current = null;
+            setBarcodeLookup(false);
+            setBarcodeMessage("");
+            setScan("");
             setLines([{}]);
+          }
           setHead(v);
         }}
       />
@@ -1062,7 +1127,23 @@ function TradeForm({
               {date(quote.data.fetched_at)}
             </p>
           )}
-          <ErrorBox error={quote.error || pricing.error} />
+          {(customerBulk || kind === "customerSale") && pricedQuote && (
+            <p>
+              {t(
+                customerBulk
+                  ? "Buying ounce adjustment (USD)"
+                  : "Selling ounce adjustment (USD)",
+              )}
+              : <bdi>{money(pricedQuote.ounce_adjustment_usd)}</bdi>
+            </p>
+          )}
+          <ErrorBox
+            error={
+              quote.error ||
+              pricing.error ||
+              (profileError ? new Error(profileError) : undefined)
+            }
+          />
         </>
       }
       {customerBulk && (
@@ -1089,12 +1170,22 @@ function TradeForm({
           · {t("Converted to 24K debt by item purity")}
         </p>
       )}
+      {kind === "itemPurchase" && (
+        <div className="making-total">
+          <span>{t("Invoice making charge (USD)")}</span>
+          <output aria-label={t("Invoice making charge (USD)")}>
+            {makingTotal(lines)}
+          </output>
+        </div>
+      )}
       {kind === "customerSale" && (
         <div className="scan">
           <input
             aria-label={t("Scan or enter barcode")}
             placeholder={t("Scan or enter barcode")}
             value={scan}
+            maxLength={50}
+            disabled={busy || barcodeLookup}
             onChange={(e) => setScan(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
@@ -1107,12 +1198,25 @@ function TradeForm({
             type="button"
             className="secondary"
             onClick={() => void addBarcode()}
+            disabled={busy || barcodeLookup}
           >
-            {t("Add")}
+            {t(barcodeLookup ? "Loading…" : "Add")}
           </button>
+          <BarcodeScanButton
+            disabled={busy || barcodeLookup || !head.location_id}
+            onScan={(barcode) => {
+              setScan(barcode);
+              void addBarcode(barcode);
+            }}
+          />
         </div>
       )}
-      <fieldset disabled={busy || uploading}>
+      {barcodeMessage && (
+        <p role="status" className="notice success">
+          {barcodeMessage}
+        </p>
+      )}
+      <fieldset disabled={busy || uploading || barcodeLookup}>
         {lines.map((v, i) => (
           <section className="line-item" key={i}>
             <div className="section-title">
@@ -1139,10 +1243,18 @@ function TradeForm({
             {(kind === "itemPurchase" || customerBulk) && (
               <ReadOnlyGoldPrice price={linePrice(v.product_id)} />
             )}
+            {kind === "itemPurchase" && (
+              <div className="making-total">
+                <span>{t("Total making charge (USD)")}</span>
+                <output aria-label={t("Total making charge (USD)")}>
+                  {makingTotal([v])}
+                </output>
+              </div>
+            )}
             {kind === "bulkSale" && (
               <ReadOnlyGoldPrice
                 price={gramPrice(
-                  quote.data,
+                  pricedQuote,
                   pricing.data?.purities.find(
                     (p) => String(p.id) === String(v.gold_purity_id),
                   ),
@@ -1152,7 +1264,7 @@ function TradeForm({
             {kind === "customerSale" && v.inventory_item_id && (
               <SaleLivePrice
                 itemId={String(v.inventory_item_id)}
-                quote={quote.data}
+                quote={pricedQuote}
                 purities={pricing.data?.purities || []}
               />
             )}
@@ -1198,7 +1310,11 @@ function TradeForm({
         <span className="muted small">
           {t("Keep this window open and retry after a connection failure.")}
         </span>
-        <button disabled={busy || uploading || !freshQuote || !pricing.data}>
+        <button
+          disabled={
+            busy || uploading || barcodeLookup || !freshQuote || !pricing.data
+          }
+        >
           {t(busy ? "Working…" : "Confirm")}
         </button>
       </footer>
@@ -1262,6 +1378,20 @@ function TradeDetail({
           <strong>{date(record.created_at)}</strong>
         </div>
       </div>
+      {record.market_ounce_usd != null && (
+        <div className="detail-grid">
+          {[
+            ["Market ounce (USD)", record.market_ounce_usd],
+            ["Ounce adjustment (USD)", record.ounce_adjustment_usd],
+            ["Applied ounce (USD)", record.applied_ounce_usd],
+          ].map(([label, value]) => (
+            <div key={String(label)}>
+              <span>{t(String(label))}</span>
+              <strong dir="ltr">${money(value)}</strong>
+            </div>
+          ))}
+        </div>
+      )}
       {purchase && ["customer", "opening"].includes(String(record.source)) && (
         <p>
           {t("Total paid (USD)")}: ${money(record.paid_usd)}
@@ -1278,12 +1408,18 @@ function TradeDetail({
                 .filter(
                   ([key, value]) =>
                     value != null &&
+                    !(
+                      purchase &&
+                      key === "gold_charge_in_grams" &&
+                      row.gold_charge_24k != null
+                    ) &&
                     [
                       "barcode",
                       "product_id",
                       "inventory_item_id",
                       "weight",
                       "gold_charge_in_grams",
+                      "gold_charge_24k",
                       "gold_price_per_gram",
                       "cost_per_gram",
                       "making_charge",
@@ -1302,9 +1438,13 @@ function TradeDetail({
                             inventory_item_id: "Items",
                             weight: "Weight (g)",
                             gold_charge_in_grams: "Gold charge (g)",
+                            gold_charge_24k: "Gold charge (24K equivalent g)",
                             gold_price_per_gram: "Gold price / gram",
                             cost_per_gram: "Cost / gram",
-                            making_charge: "Making charge (USD)",
+                            making_charge:
+                              purchase && row.gold_charge_in_grams != null
+                                ? "Making charge (USD/g)"
+                                : "Making charge (USD)",
                             sell_price: "Final price (USD)",
                             refund_usd: "Refund (USD)",
                           } as Record<string, string>
@@ -1316,6 +1456,7 @@ function TradeDetail({
                 ))}
             </div>
             {!purchase &&
+              record.kind !== "supplier" &&
               row.inventory_item_id != null &&
               (row.returned ? (
                 <Badge value="Returned" />
@@ -1357,6 +1498,7 @@ function TradeDetail({
 }
 
 export function Trades({ purchase = false }: { purchase?: boolean }) {
+  const workspace = useWorkspace();
   const { t } = useLanguage();
   const can = useCan();
   const [action, setAction] = useState<
@@ -1376,7 +1518,9 @@ export function Trades({ purchase = false }: { purchase?: boolean }) {
                 {t("Customer bulk purchase")}
               </button>
             )}
-            {(purchase ? can.admin : can.cashier) && (
+            {(purchase
+              ? can.admin && workspace === "showroom"
+              : can.cashier) && (
               <button
                 onClick={() =>
                   setAction(purchase ? "itemPurchase" : "customerSale")
@@ -1386,7 +1530,8 @@ export function Trades({ purchase = false }: { purchase?: boolean }) {
                 {t(purchase ? "Item purchase" : "Customer sale")}
               </button>
             )}
-            {!purchase && can.admin && (
+            {!purchase && can.cashier && <ServiceSaleButton />}
+            {!purchase && workspace === "factory" && can.admin && (
               <button
                 className="secondary"
                 onClick={() => setAction("bulkSale")}
@@ -1429,6 +1574,30 @@ export function Trades({ purchase = false }: { purchase?: boolean }) {
           view={setSelected}
         />
       </section>
+      {!purchase && can.cashier && (
+        <section className="panel">
+          <h2>{t("Service sales")}</h2>
+          <DataList
+            path={"/servicing/sales" + (loc ? `?location_id=${loc}` : "")}
+            local
+            columns={[
+              { key: "id", label: "ID" },
+              { key: "barcode", label: "Barcode" },
+              { key: "location_id", label: "Location" },
+              {
+                key: "amount_usd",
+                label: "Collected (USD)",
+                render: (r) => money(r.amount_usd),
+              },
+              {
+                key: "created_at",
+                label: "Date",
+                render: (r) => date(r.created_at),
+              },
+            ]}
+          />
+        </section>
+      )}
       {action && (
         <Modal
           title={
@@ -1760,12 +1929,18 @@ export function Cash() {
           <div className="stats">
             {[
               ["Customer receipts", "received_usd"],
+              ["Service receipts", "service_received_usd"],
               ["Customer refunds", "refunded_usd"],
               ["Expenses", "expenses_usd"],
               ["Withdrawals", "withdrawals_usd"],
               ["Customer bulk purchases", "customer_purchases_usd"],
               ["Supplier sent", "supplier_sent_usd"],
               ["Supplier received", "supplier_received_usd"],
+              ["Capital", "capital_usd"],
+              ["Adjustments", "adjustments_usd"],
+              ["Cash transfers", "transfers_usd"],
+              ["Internal payments", "internal_payments_usd"],
+              ["Production costs", "production_costs_usd"],
               ["Net movement", "net_usd"],
             ].map(([label, key]) => (
               <div className="stat compact" key={key}>
@@ -1903,97 +2078,52 @@ export function Cash() {
   );
 }
 
-export function Servicing() {
-  const { t } = useLanguage();
-  const can = useCan();
-  const [editing, setEditing] = useState<Row | null | undefined>();
-  const op = useRef(new Operation());
-  const done = useDone(() => setEditing(undefined));
-  const fields: Field[] = editing
-    ? [
-        { key: "status", label: "Status", required: true },
-        amount("cost", "Cost (USD)"),
-        note,
-      ]
-    : [
-        {
-          key: "customer_id",
-          label: "Customer",
-          type: "select",
-          resource: "customers",
-          required: true,
-        },
-        { key: "barcode", label: "Barcode", required: true, maxLength: 50 },
-        { key: "status", label: "Status", required: true },
-        amount("cost", "Cost (USD)"),
-        note,
-      ];
-  return (
-    <>
-      <PageHead
-        title="Servicing"
-        action={
-          can.employee && (
-            <button onClick={() => setEditing(null)}>
-              <Plus size={17} />
-              {t("New service")}
-            </button>
-          )
-        }
-      />
-      <section className="panel">
-        <DataList
-          path="/servicing"
-          local
-          columns={[
-            { key: "barcode", label: "Barcode" },
-            { key: "customer_id", label: "Customer" },
-            {
-              key: "status",
-              label: "Status",
-              render: (r) => <Badge value={r.status} />,
-            },
-            { key: "cost", label: "Cost (USD)" },
-            { key: "notes", label: "Notes" },
-          ]}
-          edit={can.employee ? setEditing : undefined}
-        />
-      </section>
-      {editing !== undefined && (
-        <Modal
-          title={editing ? "Edit" : "New service"}
-          close={() => setEditing(undefined)}
-        >
-          <Form
-            fields={fields}
-            initial={
-              editing ? clean(editing) : { status: "received", cost: "0" }
-            }
-            submit={(v) =>
-              op.current.send(
-                "/servicing" + (editing ? "/" + editing.id : ""),
-                toPayload(fields, v),
-                editing ? "PATCH" : "POST",
-              )
-            }
-            done={done}
-          />
-        </Modal>
-      )}
-    </>
-  );
-}
-
 export function Staff() {
   const { t } = useLanguage();
   const op = useRef(new Operation());
   const [saved, setSaved] = useState(false);
+  const [editing, setEditing] = useState<Row>();
+  const done = useDone(() => setEditing(undefined));
   return (
     <>
       <PageHead
         title="Staff accounts"
         description="Only admins can create staff accounts."
       />
+      <section className="panel">
+        <DataList
+          path="/operations/staff"
+          searchable={false}
+          columns={[
+            { key: "username", label: "Username" },
+            { key: "role", label: "Role" },
+            { key: "workspace_access", label: "Workspace access" },
+          ]}
+          edit={setEditing}
+        />
+      </section>
+      {editing && (
+        <Modal title="Workspace access" close={() => setEditing(undefined)}>
+          <Form
+            fields={[
+              {
+                key: "workspace_access",
+                label: "Workspace access",
+                type: "select",
+                options: ["showroom", "factory", "both"],
+                required: true,
+              },
+            ]}
+            initial={{
+              workspace_access: String(editing.workspace_access || "showroom"),
+            }}
+            submit={(v) =>
+              op.current.send(`/operations/staff/${editing.id}`, v, "PATCH")
+            }
+            done={done}
+          />
+        </Modal>
+      )}
       <section className="panel narrow">
         {saved && (
           <div className="notice success" role="status">
@@ -2003,6 +2133,13 @@ export function Staff() {
         <Form
           key={String(saved)}
           fields={[
+            {
+              key: "workspace_access",
+              label: "Workspace access",
+              type: "select",
+              options: ["showroom", "factory", "both"],
+              required: true,
+            },
             { key: "email", label: "Email", required: true, maxLength: 255 },
             {
               key: "username",
@@ -2025,7 +2162,7 @@ export function Staff() {
               required: true,
             },
           ]}
-          initial={{ role: "cashier" }}
+          initial={{ role: "cashier", workspace_access: "showroom" }}
           submit={(v) => op.current.send("/auth/register", v)}
           done={() => {
             setSaved(true);

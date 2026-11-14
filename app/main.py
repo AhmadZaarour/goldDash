@@ -10,6 +10,7 @@ from app.api.router import api_router
 from app.core.config import Settings, settings
 from app.core.database import get_db
 from app.core.redis import redis
+from app.core.workspace import in_workspace
 
 
 def create_app(config: Settings | None = None) -> FastAPI:
@@ -20,9 +21,27 @@ def create_app(config: Settings | None = None) -> FastAPI:
         allow_origins=config.cors_origins,
         allow_credentials=False,
         allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
+        allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Business-Unit"],
         expose_headers=["X-Total-Count", "X-Limit", "X-Offset"],
     )
+
+    @application.middleware("http")
+    async def workspace_scope(request: Request, call_next):
+        unit = request.headers.get("X-Business-Unit", "showroom")
+        if unit not in {"factory", "showroom", "legacy"}:
+            return JSONResponse(status_code=400, content={"detail": "Choose Factory or Showroom"})
+        if (
+            unit == "legacy"
+            and request.method not in {"GET", "HEAD", "OPTIONS"}
+            and not request.url.path.startswith(
+                ("/api/v1/auth/", "/api/v1/operations/legacy/assign")
+            )
+        ):
+            return JSONResponse(
+                status_code=403, content={"detail": "Unassigned history is read-only"}
+            )
+        with in_workspace(unit):
+            return await call_next(request)
 
     @application.exception_handler(IntegrityError)
     async def integrity_conflict(request: Request, error: IntegrityError):

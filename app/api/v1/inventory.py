@@ -1,7 +1,7 @@
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.authorization import EmployeeUser
@@ -9,6 +9,7 @@ from app.core.database import get_db
 from app.core.pagination import paginate
 from app.models import InventoryMovement, InventoryStock, Product, PurchaseItem
 from app.models.inventoryItem import InventoryItem
+from app.models.operations import ProductionPiece
 from app.schemas.inventory import (
     InventoryItemImageUpdate,
     InventoryItemResponse,
@@ -106,7 +107,15 @@ async def get_all_items_endpoint(
     category_id: int | None = Query(default=None, gt=0),
     sort: Literal["id", "-id"] = "id",
 ) -> list[InventoryItemResponse]:
-    statement = select(InventoryItem).join(PurchaseItem).join(Product)
+    statement = (
+        select(InventoryItem)
+        .outerjoin(PurchaseItem, InventoryItem.purchase_item_id == PurchaseItem.id)
+        .outerjoin(ProductionPiece, InventoryItem.production_piece_id == ProductionPiece.id)
+        .join(
+            Product,
+            Product.id == func.coalesce(PurchaseItem.product_id, ProductionPiece.product_id),
+        )
+    )
     if q:
         statement = statement.where(
             or_(

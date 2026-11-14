@@ -5,7 +5,231 @@ import {
   useState,
   type ReactNode,
 } from "react";
+const en: Record<string, string> = {
+  in_progress: "In progress",
+  finished: "Finished",
+  service_sale: "Service sale",
+};
 const ar: Record<string, string> = {
+  "Customer price adjustments": "تعديلات سعر الذهب للعملاء",
+  "Customer price adjustments saved": "تم حفظ تعديلات سعر الذهب للعملاء",
+  "Customer gold prices": "أسعار الذهب للعملاء",
+  "Customer price": "سعر العميل",
+  "Customer buying": "الشراء من العملاء",
+  "Customer selling": "البيع للعملاء",
+  "Ounce adjustment (USD)": "تعديل سعر الأونصة (دولار)",
+  "Adjusted ounce (USD)": "سعر الأونصة المعدّل (دولار)",
+  "Buying ounce adjustment (USD)": "تعديل أونصة الشراء (دولار)",
+  "Selling ounce adjustment (USD)": "تعديل أونصة البيع (دولار)",
+  "Market ounce (USD)": "سعر أونصة السوق (دولار)",
+  "Applied ounce (USD)": "سعر الأونصة المطبّق (دولار)",
+  "Customer price unavailable. Review the ounce adjustment.":
+    "سعر العميل غير متاح. راجع تعديل سعر الأونصة.",
+  "These adjustments apply to customer prices in this workspace. Enter a negative number to subtract from the market ounce price.":
+    "تُطبّق هذه التعديلات على أسعار العملاء في مساحة العمل الحالية. أدخل رقماً سالباً للخصم من سعر أونصة السوق.",
+  "Raw gold transfer": "تحويل الذهب الخام",
+  "Add purity": "إضافة عيار",
+  Finished: "مكتمل",
+  "Factory gold inventory": "مخزون ذهب المصنع",
+  "Raw gold input": "الذهب الخام المدخل",
+  "Raw bulk gold": "ذهب خام",
+  "Raw gold (g)": "الذهب الخام (غ)",
+  "Finished gold": "ذهب مُصنّع",
+  "Finished gold (g)": "الذهب المُصنّع (غ)",
+  "Seed finished gold": "إدخال رصيد ذهب مُصنّع",
+  "Available finished gold": "الذهب المُصنّع المتاح",
+  "Production batch": "دفعة إنتاج",
+  "Production batches": "دفعات الإنتاج",
+  "Record production step": "تسجيل مرحلة إنتاج",
+  "Step name": "اسم المرحلة",
+  "Output after this step": "الناتج بعد هذه المرحلة",
+  "Newly recovered scrap": "القصاصات المستردة في هذه المرحلة",
+  "Loss (24K g)": "الفاقد (غ مكافئ 24 قيراط)",
+  "Output gold (24K g)": "الذهب الناتج (غ مكافئ 24 قيراط)",
+  "Gold (24K equivalent g)": "الذهب (غ مكافئ 24 قيراط)",
+  "Save step": "حفظ المرحلة",
+  "Finish production": "إكمال الإنتاج",
+  "Historical pieces": "القطع التاريخية",
+  "Making charge / gram (USD)": "المصنعية لكل غرام (دولار)",
+  "Factory stock awaiting piece registration": "ذهب المصنع بانتظار تسجيل القطع",
+  "Register received pieces": "تسجيل القطع المستلمة",
+  "Photo attached": "تم إرفاق الصورة",
+  "Track raw gold through production steps, then release finished weight by purity.":
+    "تتبّع الذهب الخام عبر مراحل الإنتاج، ثم سجّل الوزن المُصنّع حسب العيار.",
+  "Starting a batch reserves its raw gold. Finished stock becomes available only after completion.":
+    "بدء الدفعة يحجز ذهبها الخام. يتاح الذهب المُصنّع بعد إكمال الإنتاج فقط.",
+  "Weigh all gold remaining in the batch by purity, including work still in progress. Do not include scrap recovered in earlier steps.":
+    "زن كل الذهب المتبقي في الدفعة حسب العيار، بما فيه العمل الجاري. لا تُضف قصاصات استُردّت في مراحل سابقة.",
+  "Loss is calculated automatically in 24K equivalent. Explain any loss in the step notes.":
+    "يُحسب الفاقد تلقائياً بمكافئ عيار 24. وضّح الفاقد في ملاحظات المرحلة.",
+  "Making charge is USD per physical gram. Gold receivables use 24K equivalent; settlement factors remain unchanged.":
+    "المصنعية بالدولار لكل غرام فعلي. يُسجّل الذهب المستحق بمكافئ عيار 24 باستخدام عوامل التسوية المعتمدة.",
+  "Sell finished gold by purity and weight. Gold and making charges are recorded as receivables.":
+    "بِع الذهب المُصنّع حسب العيار والوزن. يُسجّل الذهب والمصنعية كمستحقات.",
+  "Raw gold and finished gold are tracked separately by purity and weight.":
+    "يُتتبّع الذهب الخام والمُصنّع بشكل منفصل حسب العيار والوزن.",
+  "Enter pieces from this invoice. Their total weight cannot exceed the remaining weight for each purity.":
+    "أدخل قطع هذه الفاتورة. يجب ألا يتجاوز مجموع أوزانها الوزن المتبقي لكل عيار.",
+  service_sale: "بيع خدمة",
+  "Gross profit including services (USD)":
+    "إجمالي الربح شاملاً الخدمات (دولار)",
+  in_progress: "قيد التنفيذ",
+  finished: "منتهية",
+  "Service sales": "مبيعات الخدمات",
+  "Service sale": "بيع خدمة",
+  "Service details": "تفاصيل الخدمة",
+  "Service not found": "لم يتم العثور على الخدمة",
+  "This service has already been paid": "تم دفع هذه الخدمة مسبقاً",
+  "Finish the service before collecting payment": "أنهِ الخدمة قبل تحصيل الدفع",
+  "Enter the amount collected for this service.":
+    "أدخل المبلغ المقبوض مقابل هذه الخدمة.",
+  "Submit payment": "تسجيل الدفع",
+  "Service payment recorded": "تم تسجيل دفع الخدمة",
+  "Service receipts": "مقبوضات الخدمات",
+  "Collected (USD)": "المبلغ المقبوض (دولار)",
+  "Legacy estimate (USD)": "التقدير السابق (دولار)",
+  Unpaid: "غير مدفوعة",
+  Paid: "مدفوعة",
+  Payment: "الدفع",
+
+  "Scan barcode": "مسح الباركود",
+  Camera: "الكاميرا",
+  "Camera preview": "معاينة الكاميرا",
+  "Starting camera…": "جارٍ تشغيل الكاميرا…",
+  "Camera paused. Tap Try again to resume.":
+    "تم إيقاف الكاميرا مؤقتاً. اضغط حاول مجدداً للاستئناف.",
+  "Point the camera at the barcode. Keep the entire barcode visible and well lit.":
+    "وجّه الكاميرا نحو الباركود، مع إظهاره بالكامل وإضاءة جيدة.",
+  "The camera closes after one scan. Images stay on your device.":
+    "تُغلق الكاميرا بعد مسح واحد. تبقى الصور على جهازك.",
+  "This barcode is not supported. Try another barcode or enter it manually.":
+    "هذا الباركود غير مدعوم. جرّب باركوداً آخر أو أدخله يدوياً.",
+  "Camera scanning requires HTTPS. You can still enter the barcode manually.":
+    "مسح الباركود بالكاميرا يتطلب اتصال HTTPS. يمكنك إدخال الباركود يدوياً.",
+  "Camera access is unavailable on this device. Enter the barcode manually.":
+    "الكاميرا غير متاحة على هذا الجهاز. أدخل الباركود يدوياً.",
+  "Allow camera access in Chrome, then try again.":
+    "اسمح بالوصول إلى الكاميرا في Chrome، ثم حاول مجدداً.",
+  "No camera was found. Choose another camera or enter the barcode manually.":
+    "لم يتم العثور على كاميرا. اختر كاميرا أخرى أو أدخل الباركود يدوياً.",
+  "The camera is busy. Close other apps using it, then try again.":
+    "الكاميرا مشغولة. أغلق التطبيقات الأخرى التي تستخدمها، ثم حاول مجدداً.",
+  "The scanner could not start. Try again or enter the barcode manually.":
+    "تعذّر تشغيل الماسح. حاول مجدداً أو أدخل الباركود يدوياً.",
+  "The camera stopped. Try again or enter the barcode manually.":
+    "توقفت الكاميرا. حاول مجدداً أو أدخل الباركود يدوياً.",
+  "Enter a barcode of 1 to 50 characters.":
+    "أدخل باركوداً من حرف واحد إلى 50 حرفاً.",
+  "This item is already in the sale.":
+    "هذه القطعة موجودة بالفعل في عملية البيع.",
+  "Item added to the sale. Enter its final price.":
+    "تمت إضافة القطعة إلى عملية البيع. أدخل سعرها النهائي.",
+  "Service barcode": "باركود الصيانة",
+  "Find service": "البحث عن صيانة",
+  "No service found. Choose New service to use this barcode.":
+    "لم يتم العثور على صيانة. اختر صيانة جديدة لاستخدام هذا الباركود.",
+  Workspace: "مساحة العمل",
+  Factory: "المصنع",
+  Showroom: "المعرض",
+  "Unassigned history": "سجل غير مصنف",
+  "Workspace access": "الوصول لمساحات العمل",
+  both: "كلاهما",
+  "Opening balances": "الأرصدة الافتتاحية",
+  "Set opening balances": "إدخال الأرصدة الافتتاحية",
+  "Add cash / gold": "إضافة نقد أو ذهب",
+  "Record adjustment": "تسجيل تسوية رصيد",
+  "Transfer cash": "تحويل نقد",
+  "Transfer gold": "تحويل ذهب",
+  "Record stock value": "تسجيل قيمة المخزون",
+  "Balance history": "سجل الأرصدة",
+  "Cash (USD)": "النقد (دولار)",
+  "Recorded gold value (USD)": "القيمة الدفترية للذهب (دولار)",
+  "Reason / notes": "السبب / الملاحظات",
+  "Add gold line": "إضافة سطر ذهب",
+  "Destination workspace": "مساحة العمل المستلمة",
+  "As of": "بتاريخ",
+  "Factory balances": "أرصدة المصنع",
+  "Showroom balances": "أرصدة المعرض",
+  "Bulk gold (g)": "الذهب بالجملة (غ)",
+  "Workspace reports": "تقارير مساحات العمل",
+  Production: "الإنتاج",
+  "Start production": "بدء دفعة إنتاج",
+  Reference: "المرجع",
+  "Input gold (24K g)": "الذهب المدخل (غ مكافئ لعيار ٢٤)",
+  "Finished gold (24K g)": "الذهب المنتج (غ مكافئ لعيار ٢٤)",
+  "Production cost (USD)": "تكلفة الإنتاج (دولار)",
+  "Production costs paid (USD)": "تكاليف الإنتاج المدفوعة (دولار)",
+  "Unrecoverable loss (24K g)": "الفاقد غير المسترد (غ مكافئ لعيار ٢٤)",
+  "Bulk gold consumed": "الذهب بالجملة المستهلك",
+  "Finished pieces": "القطع المنتجة",
+  "Recoverable scrap": "الذهب المتبقي القابل للاسترداد",
+  Piece: "القطعة",
+  "Factory / Showroom account": "حساب المصنع والمعرض",
+  "Supply Showroom": "توريد للمعرض",
+  "Receive from Showroom": "استلام دفعة من المعرض",
+  "Pay Factory": "سداد للمصنع",
+  "Record payment": "تسجيل دفعة",
+  "Internal invoices": "الفواتير الداخلية",
+  "Internal payments": "الدفعات الداخلية",
+  "Agreed value (USD)": "القيمة المتفق عليها (دولار)",
+  "Reversal of": "عكس القيد",
+  "Agreed USD per 24K gram": "السعر المتفق عليه لكل غرام مكافئ لعيار ٢٤",
+  "Showroom location": "موقع المعرض",
+  "Factory location": "موقع المصنع",
+  "Payment direction": "اتجاه الدفعة",
+  showroom_to_factory: "من المعرض إلى المصنع",
+  factory_to_showroom: "من المصنع إلى المعرض",
+  "Supplier sales": "المبيعات للموردين",
+  "Sell to supplier": "بيع للمورد",
+  Report: "التقرير",
+  "Combined business": "إجمالي النشاط",
+  "Revenue (USD)": "الإيرادات (دولار)",
+  "Cost of goods sold (USD)": "تكلفة البضاعة المباعة (دولار)",
+  "Profit (USD)": "الربح (دولار)",
+  "Record type": "نوع السجل",
+  "Bulk gold": "الذهب بالجملة",
+  "Supplier ledger": "كشف حساب المورد",
+  "Assign ownership": "تحديد الملكية",
+  active: "نشط",
+  reversed: "معكوس",
+  voided: "ملغى",
+  "Opening balance": "رصيد افتتاحي",
+  "Capital addition": "إضافة رأس مال",
+  "Balance adjustment": "تسوية رصيد",
+  "Cash transfer": "تحويل نقد",
+  "Gold transfer": "تحويل ذهب",
+  "Stock valuation": "تقييم المخزون",
+  "Production reversal": "عكس دفعة إنتاج",
+  "Operation reversal": "عكس عملية",
+  "Ownership assignment": "تحديد الملكية",
+  "Record this workspace's starting cash and bulk gold. Additions and corrections keep a permanent history.":
+    "سجّل النقد والذهب الافتتاحي لهذه المساحة. تُحفظ الإضافات والتصحيحات في سجل دائم.",
+  "Gold value is the recorded cost of stock already owned; it does not spend drawer cash.":
+    "قيمة الذهب هي تكلفة المخزون المملوك مسبقاً، ولا تخصم نقداً من الصندوق.",
+  "Use a negative amount only when correcting a balance downward.":
+    "استخدم مبلغاً سالباً فقط لتصحيح الرصيد بالنقصان.",
+  "Turn factory bulk gold into finished pieces, keeping scrap, loss and production costs accounted for.":
+    "حوّل ذهب المصنع إلى قطع جاهزة مع تسجيل المتبقي والفاقد وتكاليف الإنتاج.",
+  "Production costs are paid from the factory drawer and included in the pieces' cost.":
+    "تُدفع تكاليف الإنتاج من صندوق المصنع وتُضمّن في تكلفة القطع.",
+  "Gold inputs must equal finished pieces, scrap and declared loss in 24K equivalent.":
+    "يجب أن يساوي الذهب المدخل مجموع القطع والمتبقي والفاقد المعلن بمكافئ عيار ٢٤.",
+  "Gold is recorded as 24K-equivalent debt. Making charges remain separate in USD.":
+    "يُسجَّل الذهب كدين بمكافئ عيار ٢٤، وتبقى المصنعية منفصلة بالدولار.",
+  "Positive balances mean Showroom owes Factory. Gold and making charges remain separate.":
+    "الرصيد الموجب يعني أن المعرض مدين للمصنع. يبقى الذهب منفصلاً عن المصنعية.",
+  "Sell finished factory pieces to suppliers. Gold and making charges are recorded as receivables.":
+    "بع قطع المصنع للموردين، وسجّل الذهب والمصنعية كمستحقات.",
+  "Profit uses recorded purchase and production costs. Company results exclude internal trade.":
+    "يُحسب الربح بتكاليف الشراء والإنتاج المسجلة، مع استبعاد التجارة الداخلية من نتيجة النشاط الإجمالية.",
+  "Some trades are missing recorded stock costs. Profit is unavailable until those costs are recorded.":
+    "تفتقد بعض العمليات تكلفة مخزون مسجلة. لا يمكن إظهار الربح حتى تسجيل هذه التكاليف.",
+  "Existing records have no assumed owner. Review each record before assigning it to Factory or Showroom.":
+    "لم تُفترض ملكية للسجلات السابقة. راجع كل سجل قبل إسناده للمصنع أو المعرض.",
+  "Assign this record and its linked financial records only after reviewing their ownership.":
+    "أسند هذا السجل وسجلاته المالية المرتبطة بعد مراجعة ملكيتها فقط.",
+
+  "Gold charge (24K equivalent g)": "استحقاق الذهب (غ مكافئ لعيار ٢٤)",
   "Gold prices are calculated from the live quote when the trade is confirmed.":
     "تُحسب أسعار الذهب من السعر المباشر عند تأكيد العملية.",
   "Enter 0 USD for opening stock. No cash payment or supplier debt is recorded.":
@@ -163,6 +387,9 @@ const ar: Record<string, string> = {
   Product: "المنتج",
   "Weight (g)": "الوزن (غ)",
   "Gold charge (g)": "أجرة الذهب (غ)",
+  "Making charge (USD/g)": "أجرة الصياغة (دولار/غرام)",
+  "Invoice making charge (USD)": "إجمالي أجرة الصياغة للفاتورة (دولار)",
+  "Total making charge (USD)": "إجمالي أجرة الصياغة (دولار)",
   "Making charge (USD)": "أجرة الصياغة (دولار)",
   "Gold price / gram": "سعر غرام الذهب",
   "Cost / gram": "تكلفة الغرام",
@@ -265,7 +492,6 @@ const ar: Record<string, string> = {
   ID: "الرقم",
   Date: "التاريخ",
   Details: "التفاصيل",
-  Reference: "المرجع",
   "Select a record": "اختر سجلاً",
   "Only admins can create staff accounts.":
     "يمكن للمدير فقط إنشاء حسابات الموظفين.",
@@ -351,7 +577,7 @@ export function Language({ children }: { children: ReactNode }) {
       value={{
         lang,
         toggle: () => setLang(lang === "en" ? "ar" : "en"),
-        t: (k) => (lang === "ar" ? ar[k] || k : k),
+        t: (k) => (lang === "ar" ? ar[k] || en[k] || k : en[k] || k),
       }}
     >
       {children}

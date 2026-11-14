@@ -6,6 +6,8 @@ Fonts are bundled locally. No external font or analytics service is required.
 
 ## Start
 
+Use Node.js 24 or newer for the frontend build and its bundled barcode decoder.
+
 From the repository root, start PostgreSQL/Redis, apply migrations and bootstrap
 an admin as described in the root README. Then run:
 
@@ -32,7 +34,7 @@ backend's exact `CORS_ORIGINS`. Never put secrets in VITE-prefixed variables.
 - Overview with actual inventory counts, supplier counts and location cash totals.
 - Searchable inventory, photos, item/bulk transfers, returns and transfer history.
 - Catalog creation/editing, including item/bulk product classification.
-- Multi-piece purchases, supplier bulk purchases/sales, barcode-assisted customer
+- Multi-piece supplier purchases, customer bulk purchases, barcode-assisted customer
   checkout, sale details and item returns.
 - Supplier balances, ledger history, cash/gold settlements and settlement reversal.
 - Cash entries, expenses, owner withdrawals and reconciliation reports.
@@ -143,3 +145,89 @@ prices stay manual. Bulk purchase cost per gram still means actual payment divid
 by weight; its separate gold-rate snapshot is the market reference. Every new
 trade requires a fresh quote, while completed records and returns retain their
 original prices. Trade details display recorded per-gram prices.
+
+Purchase details and piece cost references label 24K-equivalent gold charges
+separately from physical weight. Mixed-purity invoices no longer redistribute
+physical grams across pieces. The migration restores the explicit 24K display for
+prior invoices with recorded conversion factors while preserving their original
+financial fields.
+
+
+## Factory and Showroom
+
+Use the Workspace selector to enter your assigned business unit. Admins can assign
+staff access on Staff accounts. Showroom handles supplier piece purchases and
+customer checkout. Both units buy bulk. Factory has Production and Supplier sales.
+Opening balances seeds each unit's drawer and valued bulk independently; later
+additions, corrections and paired transfers remain in its audit history. Production
+reserves raw input, records named steps and measured remaining weights/scrap by
+purity, and calculates loss in 24K equivalent. Finishing adds weight to finished
+stock; Factory does not register individual pieces. **Factory gold inventory**
+shows raw and finished balances and allows explicit finished opening balances.
+Supplier sales enter weight and making charge per physical gram for each purity.
+Factory / Showroom account records internal supplies by weight; Showroom registers
+individual pieces and photos from pending receipts in Inventory. Actual gold/cash
+moves on payment under the existing repayment rules. Workspace
+reports offer separate margins and combined profit excluding internal trade.
+Unassigned history lets admins explicitly classify pre-migration records.
+See the root business-rules document for cost, conversion and cutover details.
+
+
+## Camera barcode scanning
+
+Customer sales include **Scan barcode** after choosing a location. The camera
+prefers the rear lens; operators can select another detected camera. A successful
+scan closes the camera, looks up an available piece in the current workspace and
+location, and adds it once. Final price entry and sale confirmation remain manual.
+Changing the sale location cancels a pending barcode lookup. Manual barcode entry
+is available alongside the camera button.
+
+Servicing intake generates a unique `SV…` barcode automatically. Staff enter only
+optional notes and a work status (**In progress** or **Finished**). After saving,
+the service details display the generated barcode. Staff can scan or manually
+look up an existing job to update it.
+
+**Service sale**, available to admins and cashiers in both Sales and Servicing,
+looks up a job using the camera or manual barcode entry. Enter the amount collected
+in **Cost (USD)** and submit. A single active location is selected automatically;
+otherwise choose the drawer location. Only finished, unpaid jobs can be checked out.
+Payment creates a saved service sale and one cash entry in the active workspace.
+Paid jobs cannot be edited or collected twice. Service income appears separately
+in drawer summaries and monthly reports; operating expenses remain separate.
+Old customer links, barcodes and cost estimates are retained without creating
+payments. The migration preserves each original status in `legacy_status` and maps
+completed/finished/delivered/done to Finished, other statuses to In progress.
+
+Camera access requires a secure browser context: use HTTPS on phones/tablets;
+localhost works for desktop development. Plain HTTP to a LAN address does not
+provide camera access. The scanner handles denied permissions, missing/busy cameras
+and retries. It stops camera tracks after a read, on close, when switching cameras,
+when the page is backgrounded and when its screen is unmounted. Returning to a
+backgrounded scanner requires an explicit retry.
+
+Supported formats include Code 128, Code 39, Code 93, EAN-13/8, UPC-A/E and ITF.
+The decoder is loaded on demand from the app's own assets and processes frames
+locally. Camera frames are not uploaded or saved. Scanned values retain their case
+and internal characters; empty, control-character and over-50-character values are
+rejected. Barcode printing and printer integration are separate work.
+
+Browser tests supply real generated Code 128 frames through a simulated camera;
+they exercise the actual decoder, lookup, repeated scans and camera controls on
+desktop and mobile Chromium. Before deployment, test focus, lighting, permission
+prompts and printed label readability on the staff's actual phones and tablets.
+
+
+## Customer buying and selling adjustments
+
+On **Overview → Live gold price → Customer price adjustments**, admins can set
+separate signed USD-per-ounce adjustments for buying from customers and selling
+to customers. Each workspace starts at zero. Use a negative value for a deduction.
+The dashboard displays customer buying and selling ounces and gram rates beside
+the market quote; switching workspaces loads that workspace's settings.
+
+Customer sale and bulk-buy forms display their respective adjusted gram rates.
+Enter actual payment totals independently. Saved trade details show the market
+ounce, adjustment and applied ounce, and retain the original per-gram rate after
+configuration changes. A nonpositive adjusted ounce makes the affected customer
+price unavailable until the adjustment is corrected. Apply `alembic upgrade head`
+for the new settings and snapshot columns before starting the updated frontend.

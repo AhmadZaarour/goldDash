@@ -5,9 +5,11 @@ from sqlalchemy import DateTime, ForeignKey, Numeric, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+from app.core.workspace import UnitOwned
+from app.models.goldPriceSettings import CustomerPriceSnapshot
 
 
-class Purchase(Base):
+class Purchase(CustomerPriceSnapshot, UnitOwned, Base):
     __tablename__ = "purchases"
 
     id: Mapped[int] = mapped_column(

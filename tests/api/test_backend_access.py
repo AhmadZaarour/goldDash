@@ -8,12 +8,13 @@ from app.models import User
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
 
-async def headers_for(test_session_factory, role):
+async def headers_for(test_session_factory, role, workspace_access="both"):
     async with test_session_factory() as db:
         user = User(
             email=f"{uuid4().hex}@example.com",
             username=uuid4().hex,
             role=role,
+            workspace_access=workspace_access,
             password_hash=hash_password("RoleTestPassword123!"),
         )
         db.add(user)

@@ -7,9 +7,10 @@ from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Numeric, String, f
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+from app.core.workspace import UnitOwned
 
 
-class SupplierLedgerEntry(Base):
+class SupplierLedgerEntry(UnitOwned, Base):
     __tablename__ = "supplier_ledger_entries"
     __table_args__ = (
         CheckConstraint("gold_grams = 0 OR purity_id IS NOT NULL", name="ck_ledger_gold_purity"),
@@ -35,6 +36,7 @@ class SupplierLedgerEntry(Base):
     physical_gold_grams: Mapped[Decimal | None] = mapped_column(Numeric(20, 6))
     cash_gold_usd: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     gold_price_usd: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
+    stock_value_usd: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
     gold_grams: Mapped[Decimal] = mapped_column(Numeric(20, 6))
     making_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2))
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))

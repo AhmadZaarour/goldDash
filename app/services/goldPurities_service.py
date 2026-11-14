@@ -1,10 +1,11 @@
 from decimal import Decimal
-
+from app.core.pagination import paginate
+from fastapi import Response, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.goldPurities import GoldPurity
-from app.schemas.goldPurities import GoldPurityCreate, GoldPurityUpdate
+from app.schemas.goldPurities import GoldPurityCreate, GoldPurityUpdate, GoldPurityResponse
 
 
 async def create_gold_purity(
@@ -88,3 +89,15 @@ async def update_gold_purity(
     await db.refresh(gold_purity)
 
     return gold_purity
+
+async def list_records_service(
+    db: AsyncSession,
+    response: Response,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    q: str | None = Query(default=None, min_length=1, max_length=100),
+) -> list[GoldPurityResponse]:
+    statement = select(GoldPurity).order_by(GoldPurity.id)
+    if q:
+        statement = statement.where(GoldPurity.name.icontains(q, autoescape=True))
+    return await paginate(db, statement, response, limit, offset)

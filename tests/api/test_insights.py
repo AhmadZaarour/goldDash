@@ -26,7 +26,7 @@ async def customer_sale(client, factory, quote):
         )
         line.gold_charge_in_grams = Decimal("2")
         line.gold_price_per_gram = Decimal("10")  # Must not use historical gold price.
-        line.making_charge = Decimal("5")
+        line.making_charge = Decimal("5")  # 2.1 physical grams at $5/g = $10.50.
         await db.commit()
     payload = {
         "location_id": purchase.json()["location_id"],
@@ -92,10 +92,10 @@ async def test_monthly_sale_price_margin_and_expenses(
     for key, expected in {
         "sales_usd": 200,
         "gold_value_usd": 160,
-        "making_cost_usd": 5,
-        "gross_profit_usd": 35,
+        "making_cost_usd": "10.50",
+        "gross_profit_usd": "29.50",
         "expenses_usd": "12.50",
-        "net_profit_usd": "22.50",
+        "net_profit_usd": "17.00",
     }.items():
         assert Decimal(report[key]) == Decimal(str(expected)), (key, report)
     assert report["customer_sales_count"] == 1
@@ -138,10 +138,10 @@ async def test_returns_and_resale_are_accounted_in_their_own_month(
         await client.get(URL, params={"month": "2026-05", "location_id": sale.location_id})
     ).json()
     assert Decimal(may["refunds_usd"]) == 180
-    assert Decimal(may["restored_cost_usd"]) == 165
-    assert Decimal(may["net_profit_usd"]) == -15
+    assert Decimal(may["restored_cost_usd"]) == Decimal("170.50")
+    assert Decimal(may["net_profit_usd"]) == Decimal("-9.50")
     april = (await client.get(URL, params={"month": "2026-04"})).json()
-    assert Decimal(april["net_profit_usd"]) == 35
+    assert Decimal(april["net_profit_usd"]) == Decimal("29.50")
     purchase_market_quote["gram_24k_usd"] = "90"
     result = await client.post(
         "/api/v1/sales/item",
@@ -164,7 +164,7 @@ async def test_returns_and_resale_are_accounted_in_their_own_month(
         await db.commit()
     may = (await client.get(URL, params={"month": "2026-05"})).json()
     assert may["customer_sales_count"] == may["returned_items_count"] == 1
-    assert Decimal(may["net_cost_usd"]) == 20  # 185 cost less 165 restored.
+    assert Decimal(may["net_cost_usd"]) == 20  # 190.50 cost less 170.50 restored.
     assert Decimal(may["net_profit_usd"]) == 20  # 220 - 180 - 20.
 
 
@@ -187,7 +187,7 @@ async def test_calendar_timezone_boundaries_and_invalid_month(
     )  # May 1, excluded from April.
     april = (await client.get(URL, params={"month": "2026-04"})).json()
     assert april["timezone"] == "Asia/Beirut"
-    assert Decimal(april["net_profit_usd"]) == 35
+    assert Decimal(april["net_profit_usd"]) == Decimal("29.50")
     assert (
         Decimal((await client.get(URL, params={"month": "2026-05"})).json()["net_profit_usd"])
         == -10

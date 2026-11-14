@@ -1,20 +1,21 @@
 from typing import Annotated
 
 import jwt
-from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import Depends, HTTPException, Request, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.security import decode_access_token
+from app.core.workspace import active_unit
 from app.models.user import User, UserRole
-
 
 bearer_scheme = HTTPBearer()
 
 
 async def get_current_user(
+    request: Request,
     credentials: Annotated[
         HTTPAuthorizationCredentials,
         Depends(bearer_scheme),
@@ -52,9 +53,7 @@ async def get_current_user(
     ) as exc:
         raise credentials_exception from exc
 
-    result = await db.execute(
-        select(User).where(User.id == user_id)
-    )
+    result = await db.execute(select(User).where(User.id == user_id))
 
     user = result.scalar_one_or_none()
 
@@ -67,6 +66,12 @@ async def get_current_user(
             detail="Inactive user",
         )
 
+    if not request.url.path.startswith(("/api/v1/auth/", "/api/v1/users/me")):
+        unit = active_unit()
+        if user.role != UserRole.ADMIN and (
+            unit == "legacy" or user.workspace_access not in {unit, "both"}
+        ):
+            raise HTTPException(403, "Your account does not have access to this workspace")
     return user
 
 

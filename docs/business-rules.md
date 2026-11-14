@@ -13,7 +13,9 @@ cashier accounts using `POST /api/v1/auth/register`; bootstrap administrators wi
 | Edit catalog, suppliers, locations, purities and products | Admin |
 | Create purchases, bulk sales to suppliers, supplier settlements/reversals | Admin |
 | Customer sales, item returns and walk-in bulk purchases | Cashier or admin |
-| Item/stock transfers, images and servicing | Employee or admin |
+| Item/stock transfers, images and service intake/status | Employee or admin |
+| Service checkout / service payment history | Cashier or admin |
+| Service lookup | Any signed-in staff member |
 | Read cash entries and totals | Cashier or admin |
 | Record/read cash reconciliations | Admin |
 
@@ -49,7 +51,7 @@ Changing catalog settings does not recalculate completed transactions.
 ### Item purchase invoices
 
 `POST /api/v1/purchases/item` is admin-only and requires `Idempotency-Key`.
-Each line contains product, physical weight, USD making charge and optional
+Each line contains product, physical weight, making charge in USD per physical gram and optional
 external image URL or staged `photo_token`. Purchase gold price is server-calculated,
 not an input: one fresh cached live quote prices the entire invoice. Each line
 uses USD per 24K gram × its purchase valuation factor, rounded to four decimal
@@ -63,16 +65,28 @@ and must equal the sum of the physical item weights; the frontend calculates it.
 Debt is standardized to 24K equivalent: sum each line's weight × purity / 99.5
 (24K weight uses factor 1), then round once to 0.001g, half up. This supports
 mixed-purity invoices without adding unlike weights into a single conversion.
-The invoice posts one gold debt plus its total USD making charges. Gold and USD
+The invoice posts one gold debt plus the sum of each line’s physical weight × its USD/g making rate,
+rounded once to USD cents, half up. Gold and USD
 remain separate obligations. Positive balances mean the shop owes the supplier;
 negative balances mean the supplier owes the shop.
 
-The invoice's total physical gold charge is allocated among pieces in proportion
-to fine-gold content for costing. Largest-remainder allocation at 0.001g keeps
-the allocations nonnegative and their sum exact. Allocations are stored as each
-piece's `gold_charge_in_grams` for accounting. The pricing-reference base cost
-retains the test branch's formula: physical weight × (purchase gram price +
-making charge). Historical purchase-line values remain unchanged.
+Each new piece keeps its own physical weight as `gold_charge_in_grams`; physical
+weights at different purities are never redistributed between pieces. The separate
+`gold_charge_24k` field records its converted debt contribution. Largest-remainder
+allocation applies only to the final 0.001g invoice rounding in this common 24K
+unit, so per-piece 24K charges add exactly to the invoice's booked 24K debt.
+For example, 5g of 21K plus 2.5g of 18K records 4.397g and 1.884g of 24K-equivalent
+charge, totaling 6.281g. Physical weights remain 5g and 2.5g; the 21K piece must
+never be relabeled as a 5.25g physical charge.
+
+The pricing-reference base cost retains the existing formula: physical weight ×
+(purchase gram price + making charge). No 24K-equivalent grams are multiplied by
+a physical 18K/21K gram price. New sale-time reporting similarly uses the recorded
+physical charge and matching sale gram rate. Historical prices, original charge
+fields, cash and ledger entries remain unchanged. The migration adds explicit 24K
+charges to prior invoices only where complete saved line conversion factors and
+an invoice debt snapshot exist, using those saved values rather than current
+catalog settings. Earlier history without enough evidence keeps a null 24K charge.
 Each new line stores the valuation factor used, and the invoice records both
 its physical total and its standardized gold debt.
 
@@ -340,7 +354,7 @@ Customer profit uses the **gold price recorded on each sale**, as agreed:
 - Gold value = the piece's purchase `gold_charge_in_grams` × the sale's
   `gold_price_per_gram`. This values the supplier's gold obligation, including
   any gram charge, rather than using the original purchase gold price.
-- Cost of a sold piece = that gold value + its purchase USD making charge.
+- Cost of a sold piece = that gold value + physical purchase weight × its USD/g making rate.
 - Net sales = final collected `sell_price` amounts − customer refunds.
   Discounts are already included in the collected amounts.
 - Returns restore the original sale's gold valuation plus making cost in the
@@ -387,8 +401,8 @@ the test branch. It is separate from supplier debt and the monthly report's
 sale-time gold valuation.
 
 For example, a 10.000 g piece with a purchase gold price of $80/g and a making
-charge value of $15 has a $950.00 base cost under this formula. The value is derived
-rather than stored a second time.
+rate of $15/g has a $950.00 base cost under this formula. New inventory stores the
+acquisition cost snapshot; older pieces without a snapshot use the purchase-line formula.
 It remains tied to the original purchase across transfers, sales, returns and
 resale. Inventory lists/details and each selected customer-sale line show weight
 and base cost for pricing reference. The final selling price remains explicitly
@@ -436,3 +450,284 @@ quotes. New nullable bulk-rate/timestamp columns leave historical missing market
 rates null rather than infer them from paid cost or today's quote. Existing item
 purchase/sale prices are preserved. Retired supplier bulk-purchase endpoints remain
 retired, with their history readable.
+
+
+## Independent Factory and Showroom workspaces
+
+Each request selects `X-Business-Unit: showroom` (default) or `factory`. Cash,
+stock quantities and carrying values, pieces, purchases, sales, expenses,
+reconciliations and external supplier accounts are owned by that workspace.
+Locations, contacts and product/purity catalogs remain shared. A location is a
+physical address; it does not determine ownership. Staff membership is assigned
+by an admin as Showroom, Factory or both. A workspace switch clears browser data
+before loading the selected workspace. Admins can review unassigned history.
+
+Showroom purchases supplier pieces individually, incurs gold debt in 24K-equivalent
+grams plus USD making charges, and sells pieces to customers. Factory creates
+production batches and sells finished gold by purity and weight to suppliers or Showroom.
+Factory does not enter or barcode individual pieces. Both units
+can buy bulk from walk-in customers with immediate payment, including the existing
+zero-USD inventory entry. No customer identity or supplier debt is created by bulk
+purchases. The bulk-buy form automatically uses the active workspace's bucket.
+
+### Opening balances and capital
+
+Admins use **Opening balances** for each workspace/location: record cash and one
+or more physical gold weights, purity, total recorded USD carrying value, date
+and notes. A carrying value of zero must be entered explicitly if appropriate.
+This records resources already owned; it does not spend cash, create revenue or
+incur supplier debt. Opening is allowed once at a location with no active cash or
+bulk balances. Subsequent capital additions and signed corrections are separate,
+audited actions. Corrections cannot spend unavailable cash or gold. The stock
+valuation action records a reviewed carrying value for existing bulk, including
+historical stock whose cost is unknown. Capital is never operating profit.
+
+### Production and cost
+
+Factory tracks raw bulk, work in progress and finished gold separately. Start a batch
+with valued raw weights by purity at one location; the weights and carrying values
+are removed from available raw stock and held in the batch. A default 24K input
+works alongside mixed-purity inputs. No product selection, piece count or barcode
+is required. Production does not require a market quote.
+
+Record named steps as work proceeds. Each step records **all remaining work** by
+purity, newly recovered scrap (excluding scrap from earlier steps), optional direct
+cash costs and notes. Input for the first step is the starting gold; later steps
+consume the preceding step's remaining output. Physical weights can increase when
+alloy is added: comparisons use purchase purity factors in 24K equivalent, never
+commercial repayment factors. Factors are saved on first use of each purity in the
+batch. Gold quantities for the audit use six decimal places. Gold gains above
+0.000001g are rejected; loss above 0.001g requires an explanation. A step version
+prevents two staff members from recording against the same preceding measurement.
+
+Finishing releases only the last step's output as finished stock by purity and
+returns accumulated scrap to raw stock. Recovered scrap retains its proportional
+input carrying value. Remaining material value, loss and paid direct costs are
+allocated to finished output by 24K content. Direct costs reduce Factory cash once
+and remain capitalized in the stock value. Raw input, step costs and final release
+are idempotent and atomic. Finished stock is consumed FIFO with proportional saved
+carrying values; reservations and sales cannot overspend a weight bucket.
+
+Admins can correct an in-progress batch or an unused finished batch through the
+production reversal, restoring input values and paid costs. After its finished
+gold has been sold or supplied, the dependent supply must be reversed first.
+**Factory gold inventory** also supports explicit finished opening weights and
+carrying values (including zero); these create capital stock, not profit or cash.
+Unused finished opening entries can be reversed from opening-balance history.
+
+### Internal supply and payment
+
+An admin supplies Showroom using one weight and making-charge-per-physical-gram
+line per purity, destination and agreed USD per 24K-equivalent gram (live quote
+suggested, manual price applied). The factory weight is consumed immediately and
+recorded as pending Showroom stock. One shared gold/USD account represents Factory's
+receivable and Showroom's payable, separate from external suppliers.
+
+Showroom employees/admins register individual received pieces against the invoice,
+choosing products, weights and optional photos. Partial receipt is allowed; each
+purity's total weight cannot exceed the unregistered balance. New piece barcodes
+are generated on receipt. Their acquisition value is the agreed internal value;
+the original company production cost is preserved separately for combined profit.
+A weighted supply can be reversed while no received pieces have been registered.
+Existing piece-based supply history retains its earlier reversal rules.
+
+Payments move actual gold and/or cash between the two workspaces atomically.
+Acquisition gold remains `18K weight × 0.75 / 0.995` or
+`21K weight × 0.875 / 0.995`. Repayment remains `24K debt / 0.74` for 18K,
+or `/ 0.865` for 21K. Thus physical gold clears debt at weight × its saved
+repayment factor. Cash substitution uses the entered USD per 24K-equivalent gram.
+Gold quantity and carrying cost travel together. Full settlement requires both
+gold and USD balances to reach zero. Internal invoices and payments have audited
+reversals using original factors/costs; invoices cannot reverse after external
+sale history. Ordinary cash/gold transfers move resources without clearing debt.
+
+Factory supplier sales have multiple purity lines: physical weight and USD making
+charge per physical gram. The invoice's total making charge is rounded once to
+cents and allocated across its lines. New sales use a fresh server quote with a
+saved 24K rate. They consume only finished weight, create canonical 24K-gold/USD
+receivables, and create no cash receipt until settlement. Supplier settlements use the same existing repayment equations.
+Received supplier gold is valued from the entered 24K USD rate or the fresh shared
+quote, with carrying value saved for production and exact reversal. A reversal
+never uses today's quote or edited purity settings.
+
+### Profit reports
+
+**Workspace reports** use recorded acquisition/production costs. Factory includes
+its internal sale margin; Showroom uses its agreed internal acquisition cost for
+customer sales. Combined business profit excludes internal invoices and uses
+original company costs when an external sale occurs, so unsold internal markup
+never becomes company profit. Returns restore original sale cost snapshots.
+Only operating expenses reduce these margins; capital, transfers and settlements
+do not. A missing historical carrying cost makes affected profit unavailable.
+The older Showroom monthly trade-margin panel remains a distinct sale-time gold
+valuation view; it is not the recorded-cost workspace profit report.
+
+### Historical cutover and API
+
+The original workspace migration leaves pre-workspace records unassigned (`unit IS NULL`), readable
+through the admin **Unassigned history** workspace. No placement-based ownership
+is inferred. Admins explicitly assign purchases (including linked inventory,
+receipts and supplier ledger), sales (including cash and ledger), cash, pieces,
+bulk balances and supporting history. Linked conflicting ownership rejects the
+assignment. Review remaining categories after assigning invoice roots; historic
+aggregate bulk balances are classified explicitly rather than reconstructed.
+Avoid seeding the same resources again after assigning existing balances.
+
+The weight migration `g12026weight` converts available, already-owned Factory
+pieces into finished-weight lots while retaining original piece, barcode, batch
+and invoice records. Those pieces are marked `weight_stock` to prevent counting
+or selling their gold twice. Their owner/company costs and physical weights are
+preserved; neither Showroom pieces nor unassigned history is converted. After new
+weight activity, downgrade refuses to discard the new records.
+
+Apply `alembic upgrade head` before starting this version. The workspace migration
+refuses downgrade after workspace activity. No business database data is modified
+by installing the application code alone.
+
+New routes under `/api/v1/operations` include `overview`, `opening`, `capital`,
+`adjustments`, `stock-value`, `cash-transfers`, `gold-transfers`, `history`,
+`production`, `internal-invoices`, `internal-payments`, `internal-balance`,
+`internal-resources`, `supplier-item-sales`, `profit`, `legacy`, `legacy/assign`
+and `staff`. Financial writes require `Idempotency-Key` and preserve original
+results on retries. Factory staff can record production; financial administration
+and cross-workspace transfers require admin. Reports use Asia/Beirut month bounds.
+
+
+## Per-gram purchase making charges and service organization
+
+For supplier item purchases, `making_charge` is a **USD per physical gram** rate.
+A 10g piece at $80/g gold and $5/g making has a $850 cost and creates $50 of
+making debt. Invoice USD making debt sums `weight × making_charge` across all
+pieces and rounds once to cents, half up. Piece costs, historical cost fallbacks,
+monthly trade margins and return cost restoration apply the same physical weight.
+The purchase form and details label the rate USD/g; the form previews its USD total.
+Settlement `making_usd`, internal invoice making amounts and production direct
+costs are already total USD amounts. Their meaning is unchanged.
+
+Existing posted ledger entries and saved acquisition/sale cost snapshots are not
+rewritten by this code update. Historical records without cost snapshots derive
+costs using the purchase making rate. Any correction to previously posted debt
+requires a separately reviewed accounting correction.
+
+`api/v1/operations.py` and `api/v1/supplier_ledger.py` handle HTTP parameters,
+authorization and response models. DTOs live in `schemas/operations.py` and
+`schemas/supplier_ledger.py`. Workspace queries live in
+`services/operations_query_service.py`; transactions and idempotent completion
+remain in `services/operations_service.py`. Supplier balance/settlement/reversal
+logic is in `services/supplier_ledger_service.py`. Financial writes keep their
+existing locks, atomic commits, resource checks and saved retry results.
+
+
+## Camera barcode lookup
+
+Scanning selects an inventory piece or service record; it does not post a sale,
+refund, service job or cash movement. Customer-sale lookup remains exact, limited
+to `in_stock` pieces at the chosen location in the active workspace. A duplicate
+scan retains the existing sale line and its manually entered price. Missing stock
+is reported without adding a piece.
+
+`GET /api/v1/servicing?barcode=...` optionally filters service records by exact
+barcode (1–50 characters). Query parameters support reserved characters such as
+slashes without changing identifiers. Existing unfiltered service lists and
+barcode-path reads retain their behavior. Workspace and role checks remain in
+force. Staff explicitly save edits and cashiers explicitly submit payment after scanning.
+
+
+## Service intake and checkout
+
+Service intake accepts optional notes (200 characters maximum) and `in_progress`
+(default) or `finished` status. The server generates a unique `SV` barcode; no
+customer, barcode or price entry is required or accepted at intake. Creation uses
+`Idempotency-Key`, so a lost response can be retried without creating another job.
+
+Admins/employees create and update jobs; all staff can look up jobs in their own
+workspace. Admins/cashiers collect payment through `POST /servicing/sales`, sending
+barcode, active location and `cost` (the amount collected in USD, not an expense).
+The amount must be nonnegative and have at most two decimal places. No gold price
+is needed. A job must be finished and unpaid. Location and job locks serialize
+checkout; a unique service-sale link and unique cash source prevent duplicates.
+Checkout uses a saved idempotent response and commits sale, receipt and cash entry
+atomically. Paid service records cannot be edited or reopened.
+
+Service receipts increase the selected workspace/location's cash drawer using
+`service_sale` entries. Summaries show `service_received_usd`; monthly reports
+include service income once on the collection date, including company reports.
+No service cost is inferred from the amount collected: costs remain separately
+recorded operating expenses. Service income is broken out from item revenue.
+
+Migration `f12026service` makes old customer links optional, preserves barcodes and
+legacy cost estimates, and saves original statuses in `legacy_status`. Statuses
+finished/completed/delivered/done (ignoring case/outer whitespace) become finished;
+other statuses become in_progress. It does not infer historical payments or create
+cash receipts from estimates. Downgrade refuses to discard new checkout/intake
+activity. Deploy with `alembic upgrade head` before running the updated app.
+
+
+### Weight workflow API
+
+New endpoints under `/api/v1/operations`:
+
+- `POST weight-production`: reserve raw input and open a weight batch.
+- `POST weight-production/{id}/steps`: save name, outputs, new scrap, paid costs,
+  notes and `expected_step` (the current number of recorded steps).
+- `POST weight-production/{id}/finish`: release output using `expected_step`.
+- `GET finished-stock`: finished weight/value by location and purity.
+- `POST finished-opening`: seed explicitly valued finished gold.
+- `POST supplier-weight-sales`: sell multiple purity/weight/making-per-gram lines.
+- `GET supplier-weight-sales/{sale_id}`: read the saved purity lines.
+- `POST weight-internal-invoices`: supply Showroom by purity and weight.
+- `GET pending-receipts`: unregistered Showroom weight from factory supplies.
+- `POST weight-internal-invoices/{id}/receive`: create Showroom pieces/photos.
+- `POST weight-internal-invoices/{id}/photos`: stage a receipt photo for an
+  Employee/Admin in Showroom while that weight invoice still has a pending receipt.
+  Existing general staging and inventory-photo editing permissions remain unchanged.
+
+All writes use `Idempotency-Key`. Production is Employee/Admin; seeding, supplier
+sales and internal supply are Admin; Showroom receipt is Employee/Admin in the
+Showroom workspace. Existing production history/detail and specialized reversals
+remain available. Earlier piece-creation/sale/supply routes are deprecated
+compatibility endpoints; current factory screens use the weight routes.
+
+
+## Customer ounce-price adjustments
+
+Each workspace has independent **buying** and **selling** USD-per-ounce adjustments,
+both defaulting to zero. Admins edit them from **Customer price adjustments** on
+the live gold dashboard. Enter a positive amount to add to the market ounce or a
+negative amount to subtract. The server records the editor and update time.
+
+For customer gold sales, apply the selling adjustment; for walk-in customer bulk
+purchases/opening-stock entries, apply the buying adjustment. Given adjustment A:
+
+- Applied ounce = market ounce + A.
+- 24K physical gram = applied ounce / 31.1.
+- 21K physical gram = (applied ounce / 31.1) × 0.875 / 0.995.
+- 18K physical gram = (applied ounce / 31.1) × 0.75 / 0.995.
+
+The recorded rate is rounded once to four decimal places using HALF_UP. Signed
+adjustments accept at most two decimal places. A nonpositive adjusted ounce blocks
+the affected customer trade before stock or cash is posted. The dashboard still
+shows the market quote and any valid customer profile so admins can correct settings.
+
+Customer transactions save `market_ounce_usd`, `ounce_adjustment_usd`,
+`applied_ounce_usd`, quote time and the resulting per-line gram rates. Later edits
+use the new settings only for new trades. Retry receipts retain the original price
+snapshot. Historical records keep their existing prices and have null ounce-snapshot
+fields; the migration does not infer or rewrite old rates. Actual customer payment
+and final selling totals are entered separately; purchase carrying cost uses actual
+payment, and sale revenue uses actual collection.
+
+Supplier purchases/sales and factory/internal price suggestions use the market
+quote or their entered agreed rate. Gold-weight conversion and commercial repayment
+factors continue to be applied for their respective weight and settlement workflows.
+
+`GET /api/v1/gold-price` retains its raw quote fields and adds `customer_buy`,
+`customer_sell` and `price_settings`. Both profiles are derived from the same raw
+quote cached across workspaces/workers for 30 seconds; adding profiles or changing
+settings does not bypass the upstream cooldown. `GET /api/v1/gold-price/settings`
+reads the active workspace's settings, and admin-only `PUT` replaces both signed
+adjustments. Configuration can be edited without an available external quote.
+
+Apply migration `h12026prices` before using this version. Defaults are zero until
+explicitly saved. Downgrade refuses to discard saved settings or new customer price
+snapshots after activity.

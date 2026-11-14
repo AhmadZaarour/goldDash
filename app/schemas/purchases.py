@@ -11,7 +11,9 @@ class PurchaseLineCreate(BaseModel):
     product_id: int
     weight: Decimal = Field(gt=0, decimal_places=3, max_digits=12)
     photo_token: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
-    making_charge: Decimal = Field(ge=0, decimal_places=2, max_digits=14)
+    making_charge: Decimal = Field(
+        ge=0, decimal_places=2, max_digits=14, description="Making charge in USD per physical gram"
+    )
 
 
 class PurchaseCreate(BaseModel):
@@ -86,6 +88,9 @@ class PurchaseStockResponse(BaseModel):
 
 
 class PurchaseResponse(BaseModel):
+    market_ounce_usd: Decimal | None = None
+    ounce_adjustment_usd: Decimal | None = None
+    applied_ounce_usd: Decimal | None = None
     model_config = ConfigDict(from_attributes=True)
 
     id: int
@@ -103,6 +108,7 @@ class PurchaseResponse(BaseModel):
 
 
 class PurchaseItemResponse(BaseModel):
+    gold_charge_24k: Decimal | None = None
     model_config = ConfigDict(from_attributes=True)
 
     id: int

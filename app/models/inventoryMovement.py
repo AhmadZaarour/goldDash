@@ -4,9 +4,10 @@ from sqlalchemy import DateTime, ForeignKey, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+from app.core.workspace import UnitOwned
 
 
-class InventoryMovement(Base):
+class InventoryMovement(UnitOwned, Base):
     __tablename__ = "inventoryMovements"
 
     id: Mapped[int] = mapped_column(

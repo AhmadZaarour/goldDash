@@ -1,19 +1,19 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import select
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import require_role
-from app.core.pagination import paginate
-from app.models.goldPurities import GoldPurity
+
 from app.models.user import UserRole
 from app.schemas.goldPurities import GoldPurityCreate, GoldPurityResponse, GoldPurityUpdate
 from app.services.goldPurities_service import (
     create_gold_purity,
     get_gold_purity,
     update_gold_purity,
+    list_records_service,
 )
 
 router = APIRouter(
@@ -113,7 +113,10 @@ async def list_records(
     offset: int = Query(default=0, ge=0),
     q: str | None = Query(default=None, min_length=1, max_length=100),
 ) -> list[GoldPurityResponse]:
-    statement = select(GoldPurity).order_by(GoldPurity.id)
-    if q:
-        statement = statement.where(GoldPurity.name.icontains(q, autoescape=True))
-    return await paginate(db, statement, response, limit, offset)
+    return await list_records_service(
+        db,
+        response,
+        limit,
+        offset,
+        q,
+    )

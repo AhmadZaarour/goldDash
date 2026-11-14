@@ -210,7 +210,9 @@ async def test_inactive_supplier_rejects_purchases_bulk_sales_and_settlements(
             "making_charge": "5",
         },
     }
-    response = await client.post("/api/v1/sales/stock", json=bulk_sale)
+    response = await client.post(
+        "/api/v1/sales/stock", json=bulk_sale, headers={"X-Business-Unit": "factory"}
+    )
     assert response.status_code == 409
     assert "inactive" in response.json()["detail"]
     settlement = {

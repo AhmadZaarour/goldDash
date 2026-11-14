@@ -1,8 +1,10 @@
-import { useQuery } from "@tanstack/react-query";
+import { useState, useRef } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Decimal from "decimal.js";
-import { get, type Row } from "./api";
+import { get, Operation, type Row } from "./api";
 import { useLanguage } from "./i18n";
-import { Busy, ErrorBox, money, date } from "./ui";
+import { useCan } from "./session";
+import { Busy, ErrorBox, money, date, Modal, Form } from "./ui";
 
 export interface GoldQuote {
   ounce_usd: string;
@@ -11,6 +13,11 @@ export interface GoldQuote {
   gram_18k_usd: string;
   fetched_at: string;
   stale: boolean;
+  market_ounce_usd?: string;
+  ounce_adjustment_usd?: string;
+  applied_ounce_usd?: string;
+  customer_buy?: GoldQuote & { available: boolean; error?: string };
+  customer_sell?: GoldQuote & { available: boolean; error?: string };
 }
 export function useGoldQuote(enabled = true) {
   return useQuery({
@@ -23,6 +30,9 @@ export function useGoldQuote(enabled = true) {
 }
 export function GoldPrice() {
   const { t } = useLanguage();
+  const can = useCan();
+  const [editing, setEditing] = useState(false);
+  const [saved, setSaved] = useState(false);
   const quote = useGoldQuote();
   const stale =
     quote.data?.stale ||
@@ -31,6 +41,32 @@ export function GoldPrice() {
   return (
     <section className="panel">
       <h2>{t("Live gold price")}</h2>
+      {can.admin && (
+        <button
+          type="button"
+          className="secondary"
+          onClick={() => {
+            setSaved(false);
+            setEditing(true);
+          }}
+        >
+          {t("Customer price adjustments")}
+        </button>
+      )}
+      {saved && <p role="status">{t("Customer price adjustments saved")}</p>}
+      {editing && (
+        <Modal
+          title="Customer price adjustments"
+          close={() => setEditing(false)}
+        >
+          <PriceSettingsForm
+            done={() => {
+              setEditing(false);
+              setSaved(true);
+            }}
+          />
+        </Modal>
+      )}
       {quote.isLoading && <Busy />}
       <ErrorBox error={quote.error} />
       {quote.data && (
@@ -49,6 +85,72 @@ export function GoldPrice() {
                 <strong dir="ltr">${money(quote.data[key])}</strong>
               </div>
             ))}
+          </div>
+          <div className="table-wrap">
+            <table aria-label={t("Customer gold prices")}>
+              <thead>
+                <tr>
+                  {[
+                    "Customer price",
+                    "Ounce adjustment (USD)",
+                    "Adjusted ounce (USD)",
+                    "24K gram (USD)",
+                    "21K gram (USD)",
+                    "18K gram (USD)",
+                  ].map((label) => (
+                    <th key={label}>{t(label)}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {(["buy", "sell"] as const).map((direction) => {
+                  const profile = customerQuote(quote.data, direction);
+                  const offset =
+                    (direction === "buy"
+                      ? quote.data?.customer_buy
+                      : quote.data?.customer_sell
+                    )?.ounce_adjustment_usd || "0";
+                  return (
+                    <tr key={direction}>
+                      <td data-label={t("Customer price")}>
+                        {t(
+                          direction === "buy"
+                            ? "Customer buying"
+                            : "Customer selling",
+                        )}
+                      </td>
+                      <td dir="ltr" data-label={t("Ounce adjustment (USD)")}>
+                        {money(offset)}
+                      </td>
+                      {profile ? (
+                        <>
+                          <td dir="ltr" data-label={t("Adjusted ounce (USD)")}>
+                            {money(profile.ounce_usd)}
+                          </td>
+                          {(
+                            [
+                              ["gram_24k_usd", "24K gram (USD)"],
+                              ["gram_21k_usd", "21K gram (USD)"],
+                              ["gram_18k_usd", "18K gram (USD)"],
+                            ] as const
+                          ).map(([key, label]) => (
+                            <td dir="ltr" key={key} data-label={t(label)}>
+                              {new Decimal(profile[key]).toFixed(4)}
+                            </td>
+                          ))}
+                        </>
+                      ) : (
+                        <td colSpan={4}>
+                          {t(
+                            "Customer price unavailable. Review the ounce adjustment.",
+                          )}
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
           <p role="status">
             {t(stale ? "Stale quote" : "Latest quote")} ·{" "}
@@ -72,4 +174,67 @@ export function gramPrice(
   return new Decimal(quote.gram_24k_usd)
     .times(factor)
     .toFixed(4, Decimal.ROUND_HALF_UP);
+}
+
+export function customerQuote(
+  quote: GoldQuote | undefined,
+  direction: "buy" | "sell",
+): GoldQuote | undefined {
+  if (!quote) return undefined;
+  const profile =
+    direction === "buy" ? quote.customer_buy : quote.customer_sell;
+  return profile?.available === false ? undefined : profile || quote;
+}
+
+function PriceSettingsForm({ done }: { done: () => void }) {
+  const { t } = useLanguage();
+  const q = useQueryClient();
+  const settings = useQuery({
+    queryKey: ["gold-price-settings"],
+    queryFn: () =>
+      get<{ buy_adjustment_usd: string; sell_adjustment_usd: string }>(
+        "/gold-price/settings",
+      ),
+  });
+  const op = useRef(new Operation());
+  return (
+    <>
+      <p>
+        {t(
+          "These adjustments apply to customer prices in this workspace. Enter a negative number to subtract from the market ounce price.",
+        )}
+      </p>
+      <ErrorBox error={settings.error} />
+      {settings.isLoading && <Busy />}
+      {settings.data && (
+        <Form
+          fields={[
+            {
+              key: "buy_adjustment_usd",
+              label: "Buying ounce adjustment (USD)",
+              type: "number",
+              step: "0.01",
+              required: true,
+            },
+            {
+              key: "sell_adjustment_usd",
+              label: "Selling ounce adjustment (USD)",
+              type: "number",
+              step: "0.01",
+              required: true,
+            },
+          ]}
+          initial={{
+            buy_adjustment_usd: settings.data.buy_adjustment_usd,
+            sell_adjustment_usd: settings.data.sell_adjustment_usd,
+          }}
+          submit={(v) => op.current.send("/gold-price/settings", v, "PUT")}
+          done={() => {
+            void q.invalidateQueries();
+            done();
+          }}
+        />
+      )}
+    </>
+  );
 }

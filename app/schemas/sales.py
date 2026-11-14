@@ -51,6 +51,11 @@ class SaleStockResponse(BaseModel):
 
 
 class SaleResponse(BaseModel):
+    market_ounce_usd: Decimal | None = None
+    ounce_adjustment_usd: Decimal | None = None
+    applied_ounce_usd: Decimal | None = None
+    kind: str = "customer"
+    supplier_id: int | None = None
     gold_quote_at: datetime | None = None
     customer_id: int | None = None
     model_config = ConfigDict(from_attributes=True)
@@ -64,6 +69,9 @@ class SaleResponse(BaseModel):
 
 
 class SaleItemResponse(BaseModel):
+    gold_24k: Decimal | None = None
+    making_usd: Decimal = Decimal("0")
+    cost_usd: Decimal | None = None
     returned: bool
     return_id: int | None
     refund_usd: Decimal

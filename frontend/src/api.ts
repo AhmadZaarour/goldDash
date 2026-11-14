@@ -1,9 +1,21 @@
+export type Workspace = "factory" | "showroom" | "legacy";
+let workspace: Workspace =
+  (sessionStorage.getItem("gold-workspace") as Workspace) || "showroom";
+export function getWorkspace() {
+  return workspace;
+}
+export function setWorkspace(unit: Workspace) {
+  workspace = unit;
+  sessionStorage.setItem("gold-workspace", unit);
+}
+
 export type Role = "admin" | "cashier" | "employee";
 export interface User {
   id: number;
   username: string;
   email: string;
   role: Role;
+  workspace_access?: "factory" | "showroom" | "both";
 }
 export interface Row {
   id: number;
@@ -90,11 +102,13 @@ export async function raw(
 ): Promise<Response> {
   const headers = new Headers(init.headers);
   if (access) headers.set("Authorization", `Bearer ${access}`);
+  if (!headers.has("X-Business-Unit"))
+    headers.set("X-Business-Unit", workspace);
   if (typeof init.body === "string")
     headers.set("Content-Type", "application/json");
   const r = await fetch(base + "/api/v1" + path, { ...init, headers });
   if (r.status === 401 && retry && (await renew()))
-    return raw(path, init, false);
+    return raw(path, { ...init, headers }, false);
   if (!r.ok) {
     if (r.status === 401) {
       clearSession();
@@ -156,7 +170,8 @@ export class Operation {
     headerKey = false,
     bodyKey = false,
   ): Promise<T> {
-    const text = path + method + JSON.stringify(body);
+    const unit = workspace;
+    const text = unit + path + method + JSON.stringify(body);
     let key = this.pending.get(text);
     if (!key) {
       key = Array.from(crypto.getRandomValues(new Uint8Array(16)), (n) =>
@@ -170,7 +185,10 @@ export class Operation {
     const result = await request<T>(path, {
       method,
       body: JSON.stringify(payload),
-      headers: headerKey ? { "Idempotency-Key": key } : {},
+      headers: {
+        "X-Business-Unit": unit,
+        ...(headerKey ? { "Idempotency-Key": key } : {}),
+      },
     });
     this.pending.delete(text);
     return result;

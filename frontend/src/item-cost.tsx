@@ -18,6 +18,12 @@ export function ItemCostLabel({ item }: { item: Row }) {
         <span>{t("Base cost (USD)")}</span>
         <strong dir="ltr">${money(item.base_cost_usd)}</strong>
       </div>
+      {item.gold_charge_24k != null && (
+        <div>
+          <span>{t("Gold charge (24K equivalent g)")}</span>
+          <strong dir="ltr">{text(item.gold_charge_24k)} g</strong>
+        </div>
+      )}
       <small>
         {t(
           "Cash equivalent at purchase gold price, including gold charge and supplier making charge.",

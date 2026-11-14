@@ -45,6 +45,10 @@ class User(Base):
         default=UserRole.EMPLOYEE,
     )
 
+    workspace_access: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="showroom", server_default="showroom"
+    )
+
     is_active: Mapped[bool] = mapped_column(
         default=True,
         nullable=False,

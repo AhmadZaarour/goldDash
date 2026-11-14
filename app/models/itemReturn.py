@@ -5,9 +5,10 @@ from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Numeric, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+from app.core.workspace import UnitOwned
 
 
-class ItemReturn(Base):
+class ItemReturn(UnitOwned, Base):
     __tablename__ = "item_returns"
     __table_args__ = (CheckConstraint("refund_usd >= 0", name="ck_return_refund"),)
 

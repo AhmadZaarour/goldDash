@@ -78,7 +78,7 @@ async def test_full_settlement_requires_all_units_zero_and_reopens(client, test_
         db.add(other)
         await db.flush()
         other_id = other.id
-        await post_entry(
+        entry = await post_entry(
             db,
             supplier_id=purchase.supplier_id,
             purity_id=other.id,
@@ -88,6 +88,7 @@ async def test_full_settlement_requires_all_units_zero_and_reopens(client, test_
             kind="sale",
             created_by=purchase.created_by,
         )
+        entry.unit = purchase.unit
         await db.commit()
     payload = dict(
         idempotency_key="full",
@@ -130,7 +131,7 @@ async def test_full_settlement_requires_all_units_zero_and_reopens(client, test_
     assert result.status_code == 201, result.text
     assert result.json()["is_settled"] is True
     async with test_session_factory() as db:
-        await post_entry(
+        entry = await post_entry(
             db,
             supplier_id=purchase.supplier_id,
             purity_id=purity,
@@ -140,6 +141,7 @@ async def test_full_settlement_requires_all_units_zero_and_reopens(client, test_
             kind="purchase",
             created_by=purchase.created_by,
         )
+        entry.unit = purchase.unit
         await db.commit()
     assert (await client.get(url + "/balance")).json()["is_settled"] is False
 

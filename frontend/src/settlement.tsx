@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Decimal from "decimal.js";
 import { all, get, Operation } from "./api";
+import { useWorkspace } from "./session";
 import { useLanguage } from "./i18n";
 import { useGoldQuote } from "./gold-price";
 import {
@@ -29,12 +30,13 @@ export function SupplierSettlement({
   done: () => void;
 }) {
   const { t } = useLanguage();
+  const workspace = useWorkspace();
   const [values, set] = useState<Values>({
     direction: "sent",
     gold_grams: "0",
     making_usd: "0",
     cash_gold_usd: "0",
-    placement: "factory",
+    placement: workspace === "showroom" ? "showroom" : "factory",
   });
   const [closeAccount, setCloseAccount] = useState(false);
   const [busy, setBusy] = useState(false);

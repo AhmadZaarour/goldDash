@@ -83,6 +83,14 @@ CHROMIUM_PATH=/usr/bin/chromium PYTHONPATH=. .venv/bin/python frontend/scripts/l
 
 It uses the test database connection settings and does not modify shop data.
 
+## CI
+
+The repository's GitHub Actions workflow runs `npm ci`, `npm test`, `npm run build`
+and both Playwright projects on Node.js 24. In CI, Playwright rejects focused tests
+and produces HTML/JUnit reports plus failure traces and screenshots. Download the
+`browser-reports` artifact from a failed workflow run. See [CI setup](../docs/ci.md)
+for the combined status check and the later deployment gate.
+
 ## Production
 
 Run `npm ci && npm run build`, serve `dist` over HTTPS, and configure an SPA

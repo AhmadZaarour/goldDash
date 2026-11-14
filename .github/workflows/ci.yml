@@ -1,0 +1,191 @@
+name: CI
+
+on:
+  push:
+    branches: [test, main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: "true"
+
+jobs:
+  backend:
+    name: Backend (Python ${{ matrix.python }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.13"]
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: goldshop_ci
+          POSTGRES_USER: goldshop_ci
+          POSTGRES_PASSWORD: ci_disposable_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U goldshop_ci -d goldshop_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      APP_ENVIRONMENT: test
+      DEBUG: "false"
+      ENABLE_DEV_RESET: "false"
+      SECRET_KEY: ci-only-disposable-signing-key-not-for-production
+      DATABASE_URL: postgresql+asyncpg://goldshop_ci:ci_disposable_password@127.0.0.1:5432/goldshop_ci
+      TEST_DATABASE_URL: postgresql+asyncpg://goldshop_ci:ci_disposable_password@127.0.0.1:5432/goldshop_ci_test
+      REDIS_URL: redis://127.0.0.1:6379/0
+      TEST_REDIS_URL: redis://127.0.0.1:6379/1
+      ITEM_IMAGE_DIR: var/ci-item-images
+      REPORT_TIMEZONE: Asia/Beirut
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Set up Python and uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          python-version: ${{ matrix.python }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Install locked Python dependencies
+        run: uv sync --locked --all-groups
+      - name: Check Python syntax and fatal errors
+        run: uv run ruff check --select E9,F63,F7,F82 app tests
+      - name: Create the isolated test database
+        run: |
+          uv run python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+
+          url = make_url(os.environ["TEST_DATABASE_URL"])
+          admin_url = url.set(drivername="postgresql", database="postgres")
+          with psycopg.connect(admin_url.render_as_string(hide_password=False), autocommit=True) as db:
+              db.execute("CREATE DATABASE goldshop_ci_test")
+          PY
+      - name: Apply migrations and check model consistency
+        run: |
+          DATABASE_URL="$TEST_DATABASE_URL" uv run alembic upgrade head
+          DATABASE_URL="$TEST_DATABASE_URL" uv run alembic check
+      - name: Run backend tests and migration replay
+        run: >-
+          uv run pytest -q
+          --junitxml=test-results/backend.xml
+          --cov-report=xml:test-results/coverage.xml
+          --cov-fail-under=80
+      - name: Upload backend test reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: backend-python-${{ matrix.python }}
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  frontend:
+    name: Frontend tests and build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install locked frontend dependencies
+        run: npm ci
+      - name: Run frontend unit tests
+        run: npm test
+      - name: Type-check and build the frontend
+        run: npm run build
+      - name: Upload validation build
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: frontend-build
+          path: frontend/dist/
+          retention-days: 7
+
+  browser:
+    name: Browser tests (desktop and mobile)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install locked frontend dependencies
+        run: npm ci
+      - name: Install Chromium and browser system dependencies
+        run: npx playwright install --with-deps chromium
+      - name: Run desktop and mobile browser tests
+        run: npm run test:e2e
+      - name: Upload browser reports and failure traces
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: browser-reports
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  ci-passed:
+    name: CI passed
+    needs: [backend, frontend, browser]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      BACKEND_RESULT: ${{ needs.backend.result }}
+      FRONTEND_RESULT: ${{ needs.frontend.result }}
+      BROWSER_RESULT: ${{ needs.browser.result }}
+    steps:
+      - name: Require every CI job to succeed
+        run: |
+          if [[ "$BACKEND_RESULT" != "success" || "$FRONTEND_RESULT" != "success" || "$BROWSER_RESULT" != "success" ]]; then
+            echo "CI failed: backend=$BACKEND_RESULT frontend=$FRONTEND_RESULT browser=$BROWSER_RESULT"
+            exit 1
+          fi
+          echo "All CI checks passed."

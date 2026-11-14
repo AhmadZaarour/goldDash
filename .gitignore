@@ -225,3 +225,6 @@ frontend/playwright-report/
 
 # Local implementation and verification scratch files
 /work/
+
+# Local copies of CI test reports
+/test-results/

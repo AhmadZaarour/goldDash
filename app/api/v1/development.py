@@ -20,7 +20,11 @@ router = APIRouter(prefix="/development", tags=["Development"])
 
 
 def enabled() -> bool:
-    return settings.app_environment == "development" and settings.enable_dev_reset
+    return (
+        settings.app_environment == "development"
+        and settings.enable_dev_reset
+        and settings.item_image_storage == "local"
+    )
 
 
 class ResetRequest(BaseModel):

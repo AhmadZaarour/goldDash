@@ -13,6 +13,7 @@ import Decimal from "decimal.js";
 import { WorkspaceSummary } from "./operations";
 import { DevelopmentReset } from "./development";
 import { ShowroomReceipts } from "./factory";
+import { resizePhoto } from "./item-photo";
 import { ServiceSaleButton } from "./servicing";
 import { BarcodeScanButton } from "./barcode-scanner";
 import { normalizeBarcode } from "./barcode-camera";
@@ -2172,32 +2173,5 @@ export function Staff() {
         />
       </section>
     </>
-  );
-}
-
-async function resizePhoto(file: File): Promise<Blob> {
-  const bitmap = await createImageBitmap(file, {
-    imageOrientation: "from-image",
-  });
-  const ratio = Math.min(1, 2048 / Math.max(bitmap.width, bitmap.height));
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.round(bitmap.width * ratio));
-  canvas.height = Math.max(1, Math.round(bitmap.height * ratio));
-  const context = canvas.getContext("2d");
-  if (!context) {
-    bitmap.close();
-    throw new Error("Cannot prepare photo");
-  }
-  context.fillStyle = "#ffffff";
-  context.fillRect(0, 0, canvas.width, canvas.height);
-  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  bitmap.close();
-  return new Promise((resolve, reject) =>
-    canvas.toBlob(
-      (blob) =>
-        blob ? resolve(blob) : reject(new Error("Cannot prepare photo")),
-      "image/jpeg",
-      0.85,
-    ),
   );
 }

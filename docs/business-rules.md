@@ -159,7 +159,7 @@ supplier bulk invoices remain readable through the existing purchase/stock GETs.
 ### Photos while purchasing
 
 Admin/cashier `POST /api/v1/purchases/photos` accepts raw JPEG/PNG/WebP bytes
-using the existing 10 MB limit and normalization. It returns a `token` and
+with normalization and a 10 MiB limit locally (4 MiB on Vercel). It returns a `token` and
 an authenticated preview URL. Tokens belong to the uploader and expire after
 24 hours. Include a token on its purchase line; the transaction claims it once
 and assigns its photo to the inventory item. Purchase replay retains the same
@@ -205,10 +205,13 @@ Individual purchase lines accept optional HTTP(S) `image_url` up to 2,048 charac
 `PATCH /api/v1/inventory/items/{id}/image` accepts `{"image_url": "https://..."}`
 or `{"image_url": null}`. External URLs are stored, not fetched. Cashiers/admins can instead upload a phone
 photo with `POST /api/v1/inventory/items/{id}/photo` (raw JPEG/PNG/WebP bytes,
-maximum 10 MB). The backend normalizes it to JPEG, removes metadata, resizes it
-and stores it in ITEM_IMAGE_DIR. `/api/v1/media/items/{filename}` requires a bearer
-token; the frontend displays these through authenticated blob requests. Persistent
-storage and image backups must be configured for deployment.
+maximum 10 MiB locally, 4 MiB on Vercel). The backend normalizes it to JPEG,
+removes metadata, resizes it and stores it in ITEM_IMAGE_DIR locally or private
+Vercel Blob storage. `/api/v1/media/items/{filename}` requires a bearer token and
+the owning workspace; an unclaimed staged upload also requires its creator and an
+unexpired token. The frontend displays these through authenticated blob requests.
+All camera inputs resize/compress uploads below 4 MiB. Configure persistent storage
+and image backups for deployment; see [Vercel setup](vercel-deployment.md).
 
 Inventory reads:
 

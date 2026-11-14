@@ -116,8 +116,8 @@ and is disabled for Blob storage.
    still a separate required step.
 6. Create the frontend project with root `frontend/`, Vite, Node 24, build
    `npm run build`, output `dist`, and `VITE_API_BASE_URL` set to the backend's HTTPS
-   origin (without `/api/v1`). Complete frontend SPA routing configuration before
-   relying on direct links to nested pages.
+   origin (without `/api/v1`). `frontend/vercel.json` rewrites frontend routes to
+   `index.html` so opening or refreshing a nested page works on Vercel.
 7. Set the backend's exact `CORS_ORIGINS` to that frontend origin and redeploy.
    Check login/refresh, both workspaces, photo upload/read, gold-price settings
    updates, and a disposable purchase/sale before broader testing.

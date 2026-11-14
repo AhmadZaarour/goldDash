@@ -5,9 +5,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 from app.core.workspace import UnitOwned
+from app.models.goldPriceSettings import CustomerPriceSnapshot
 
 
-class Sale(UnitOwned, Base):
+class Sale(CustomerPriceSnapshot, UnitOwned, Base):
     __tablename__ = "sales"
 
     id: Mapped[int] = mapped_column(

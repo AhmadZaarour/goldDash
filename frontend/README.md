@@ -215,3 +215,19 @@ Browser tests supply real generated Code 128 frames through a simulated camera;
 they exercise the actual decoder, lookup, repeated scans and camera controls on
 desktop and mobile Chromium. Before deployment, test focus, lighting, permission
 prompts and printed label readability on the staff's actual phones and tablets.
+
+
+## Customer buying and selling adjustments
+
+On **Overview → Live gold price → Customer price adjustments**, admins can set
+separate signed USD-per-ounce adjustments for buying from customers and selling
+to customers. Each workspace starts at zero. Use a negative value for a deduction.
+The dashboard displays customer buying and selling ounces and gram rates beside
+the market quote; switching workspaces loads that workspace's settings.
+
+Customer sale and bulk-buy forms display their respective adjusted gram rates.
+Enter actual payment totals independently. Saved trade details show the market
+ounce, adjustment and applied ounce, and retain the original per-gram rate after
+configuration changes. A nonpositive adjusted ounce makes the affected customer
+price unavailable until the adjustment is corrected. Apply `alembic upgrade head`
+for the new settings and snapshot columns before starting the updated frontend.

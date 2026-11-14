@@ -11,6 +11,22 @@ const en: Record<string, string> = {
   service_sale: "Service sale",
 };
 const ar: Record<string, string> = {
+  "Customer price adjustments": "تعديلات سعر الذهب للعملاء",
+  "Customer price adjustments saved": "تم حفظ تعديلات سعر الذهب للعملاء",
+  "Customer gold prices": "أسعار الذهب للعملاء",
+  "Customer price": "سعر العميل",
+  "Customer buying": "الشراء من العملاء",
+  "Customer selling": "البيع للعملاء",
+  "Ounce adjustment (USD)": "تعديل سعر الأونصة (دولار)",
+  "Adjusted ounce (USD)": "سعر الأونصة المعدّل (دولار)",
+  "Buying ounce adjustment (USD)": "تعديل أونصة الشراء (دولار)",
+  "Selling ounce adjustment (USD)": "تعديل أونصة البيع (دولار)",
+  "Market ounce (USD)": "سعر أونصة السوق (دولار)",
+  "Applied ounce (USD)": "سعر الأونصة المطبّق (دولار)",
+  "Customer price unavailable. Review the ounce adjustment.":
+    "سعر العميل غير متاح. راجع تعديل سعر الأونصة.",
+  "These adjustments apply to customer prices in this workspace. Enter a negative number to subtract from the market ounce price.":
+    "تُطبّق هذه التعديلات على أسعار العملاء في مساحة العمل الحالية. أدخل رقماً سالباً للخصم من سعر أونصة السوق.",
   "Raw gold transfer": "تحويل الذهب الخام",
   "Add purity": "إضافة عيار",
   Finished: "مكتمل",

@@ -21,6 +21,7 @@ import { SupplierSettlement, type SupplierBalance } from "./settlement";
 import {
   GoldPrice,
   useGoldQuote,
+  customerQuote,
   gramPrice,
   type GoldQuote,
 } from "./gold-price";
@@ -883,6 +884,16 @@ function TradeForm({
   const [uploading, setUploading] = useState(false);
   const op = useRef(new Operation());
   const quote = useGoldQuote();
+  const pricedQuote = customerBulk
+    ? customerQuote(quote.data, "buy")
+    : kind === "customerSale"
+      ? customerQuote(quote.data, "sell")
+      : quote.data;
+  const profileError = customerBulk
+    ? quote.data?.customer_buy?.error
+    : kind === "customerSale"
+      ? quote.data?.customer_sell?.error
+      : undefined;
   const pricing = useQuery({
     queryKey: ["list", "purchase-pricing"],
     queryFn: async () => {
@@ -894,16 +905,16 @@ function TradeForm({
     },
   });
   const freshQuote =
-    !!quote.data &&
-    !quote.data.stale &&
+    !!pricedQuote &&
+    !pricedQuote.stale &&
     !quote.isError &&
-    Date.now() - Date.parse(quote.data.fetched_at) < 30_000;
+    Date.now() - Date.parse(pricedQuote.fetched_at) < 30_000;
   function linePrice(productId: unknown) {
     const p = pricing.data?.products.find(
       (p) => String(p.id) === String(productId),
     );
     return gramPrice(
-      quote.data,
+      pricedQuote,
       pricing.data?.purities.find((k) => k.id === p?.purity_id),
     );
   }
@@ -1116,7 +1127,23 @@ function TradeForm({
               {date(quote.data.fetched_at)}
             </p>
           )}
-          <ErrorBox error={quote.error || pricing.error} />
+          {(customerBulk || kind === "customerSale") && pricedQuote && (
+            <p>
+              {t(
+                customerBulk
+                  ? "Buying ounce adjustment (USD)"
+                  : "Selling ounce adjustment (USD)",
+              )}
+              : <bdi>{money(pricedQuote.ounce_adjustment_usd)}</bdi>
+            </p>
+          )}
+          <ErrorBox
+            error={
+              quote.error ||
+              pricing.error ||
+              (profileError ? new Error(profileError) : undefined)
+            }
+          />
         </>
       }
       {customerBulk && (
@@ -1227,7 +1254,7 @@ function TradeForm({
             {kind === "bulkSale" && (
               <ReadOnlyGoldPrice
                 price={gramPrice(
-                  quote.data,
+                  pricedQuote,
                   pricing.data?.purities.find(
                     (p) => String(p.id) === String(v.gold_purity_id),
                   ),
@@ -1237,7 +1264,7 @@ function TradeForm({
             {kind === "customerSale" && v.inventory_item_id && (
               <SaleLivePrice
                 itemId={String(v.inventory_item_id)}
-                quote={quote.data}
+                quote={pricedQuote}
                 purities={pricing.data?.purities || []}
               />
             )}
@@ -1351,6 +1378,20 @@ function TradeDetail({
           <strong>{date(record.created_at)}</strong>
         </div>
       </div>
+      {record.market_ounce_usd != null && (
+        <div className="detail-grid">
+          {[
+            ["Market ounce (USD)", record.market_ounce_usd],
+            ["Ounce adjustment (USD)", record.ounce_adjustment_usd],
+            ["Applied ounce (USD)", record.applied_ounce_usd],
+          ].map(([label, value]) => (
+            <div key={String(label)}>
+              <span>{t(String(label))}</span>
+              <strong dir="ltr">${money(value)}</strong>
+            </div>
+          ))}
+        </div>
+      )}
       {purchase && ["customer", "opening"].includes(String(record.source)) && (
         <p>
           {t("Total paid (USD)")}: ${money(record.paid_usd)}

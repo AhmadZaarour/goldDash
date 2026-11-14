@@ -687,3 +687,47 @@ sales and internal supply are Admin; Showroom receipt is Employee/Admin in the
 Showroom workspace. Existing production history/detail and specialized reversals
 remain available. Earlier piece-creation/sale/supply routes are deprecated
 compatibility endpoints; current factory screens use the weight routes.
+
+
+## Customer ounce-price adjustments
+
+Each workspace has independent **buying** and **selling** USD-per-ounce adjustments,
+both defaulting to zero. Admins edit them from **Customer price adjustments** on
+the live gold dashboard. Enter a positive amount to add to the market ounce or a
+negative amount to subtract. The server records the editor and update time.
+
+For customer gold sales, apply the selling adjustment; for walk-in customer bulk
+purchases/opening-stock entries, apply the buying adjustment. Given adjustment A:
+
+- Applied ounce = market ounce + A.
+- 24K physical gram = applied ounce / 31.1.
+- 21K physical gram = (applied ounce / 31.1) × 0.875 / 0.995.
+- 18K physical gram = (applied ounce / 31.1) × 0.75 / 0.995.
+
+The recorded rate is rounded once to four decimal places using HALF_UP. Signed
+adjustments accept at most two decimal places. A nonpositive adjusted ounce blocks
+the affected customer trade before stock or cash is posted. The dashboard still
+shows the market quote and any valid customer profile so admins can correct settings.
+
+Customer transactions save `market_ounce_usd`, `ounce_adjustment_usd`,
+`applied_ounce_usd`, quote time and the resulting per-line gram rates. Later edits
+use the new settings only for new trades. Retry receipts retain the original price
+snapshot. Historical records keep their existing prices and have null ounce-snapshot
+fields; the migration does not infer or rewrite old rates. Actual customer payment
+and final selling totals are entered separately; purchase carrying cost uses actual
+payment, and sale revenue uses actual collection.
+
+Supplier purchases/sales and factory/internal price suggestions use the market
+quote or their entered agreed rate. Gold-weight conversion and commercial repayment
+factors continue to be applied for their respective weight and settlement workflows.
+
+`GET /api/v1/gold-price` retains its raw quote fields and adds `customer_buy`,
+`customer_sell` and `price_settings`. Both profiles are derived from the same raw
+quote cached across workspaces/workers for 30 seconds; adding profiles or changing
+settings does not bypass the upstream cooldown. `GET /api/v1/gold-price/settings`
+reads the active workspace's settings, and admin-only `PUT` replaces both signed
+adjustments. Configuration can be edited without an available external quote.
+
+Apply migration `h12026prices` before using this version. Defaults are zero until
+explicitly saved. Downgrade refuses to discard saved settings or new customer price
+snapshots after activity.

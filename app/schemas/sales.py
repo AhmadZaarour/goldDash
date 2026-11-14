@@ -51,6 +51,9 @@ class SaleStockResponse(BaseModel):
 
 
 class SaleResponse(BaseModel):
+    market_ounce_usd: Decimal | None = None
+    ounce_adjustment_usd: Decimal | None = None
+    applied_ounce_usd: Decimal | None = None
     kind: str = "customer"
     supplier_id: int | None = None
     gold_quote_at: datetime | None = None

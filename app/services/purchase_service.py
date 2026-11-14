@@ -22,6 +22,7 @@ from app.schemas.purchases import (
     PurchaseCreate,
     PurchaseStockCreate,
 )
+from app.services.customer_pricing import snapshot, trade_quote
 from app.services.gold_conversion import allocate_charge, canonical_purity, grams24, purchase_factor
 from app.services.gold_price import get_quote, price_per_gram, require_fresh_quote
 from app.services.inventory_service import (
@@ -288,7 +289,9 @@ async def create_customer_bulk_purchase(db, data, user_id):
     purity = await db.get(GoldPurity, product.purity_id)
     quote = await get_quote()
     require_fresh_quote(quote)
+    quote = await trade_quote(db, quote, "buy")
     purchase = Purchase(
+        **snapshot(quote),
         source="customer" if data.paid_usd else "opening",
         supplier_id=None,
         location_id=data.location_id,

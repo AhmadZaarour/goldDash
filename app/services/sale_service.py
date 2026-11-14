@@ -21,6 +21,7 @@ from app.schemas.sales import (
     SaleCreate,
     SaleStockCreate,
 )
+from app.services.customer_pricing import snapshot, trade_quote
 from app.services.gold_price import get_quote, price_per_gram, require_fresh_quote
 from app.services.inventory_service import (
     create_movement,
@@ -43,7 +44,9 @@ async def create_item_sale(
         raise
     quote = await get_quote()
     require_fresh_quote(quote)
+    quote = await trade_quote(db, quote, "sell")
     sale = Sale(
+        **snapshot(quote),
         **sale_data.model_dump(exclude={"items"}, exclude_none=True),
         gold_quote_at=datetime.fromisoformat(quote["fetched_at"]),
     )

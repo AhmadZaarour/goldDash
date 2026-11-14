@@ -88,6 +88,9 @@ class PurchaseStockResponse(BaseModel):
 
 
 class PurchaseResponse(BaseModel):
+    market_ounce_usd: Decimal | None = None
+    ounce_adjustment_usd: Decimal | None = None
+    applied_ounce_usd: Decimal | None = None
     model_config = ConfigDict(from_attributes=True)
 
     id: int

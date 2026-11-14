@@ -4,6 +4,7 @@ from app.models.cashLedger import CashEntry, CashReconciliation
 from app.models.categories import Category
 from app.models.customers import Customer
 from app.models.factory import FactoryWeightLine, FinishedGoldLot
+from app.models.goldPriceSettings import GoldPriceSettings
 from app.models.goldPurities import GoldPurity
 from app.models.inventoryBalance import InventoryBalance
 from app.models.inventoryItem import InventoryItem
@@ -55,6 +56,7 @@ __all__ = [
     "Category",
     "Customer",
     "GoldPurity",
+    "GoldPriceSettings",
     "InventoryBalance",
     "InventoryItem",
     "InventoryMovement",

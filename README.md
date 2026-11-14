@@ -42,6 +42,15 @@ Alembic rather than create_all. Never point them at development/business data.
 The migration replay test creates and drops a uniquely named temporary database;
 the test PostgreSQL role needs CREATEDB. Coverage must remain at least 80%.
 
+## Continuous integration
+
+GitHub Actions checks pull requests and pushes to `test`, `main` and `master`.
+It runs the backend on Python 3.12/3.13 with disposable PostgreSQL/Redis services,
+verifies migrations and 80% minimum coverage, builds/tests the frontend on Node.js
+24, and runs desktop/mobile Playwright checks. The **CI passed** status combines
+all results for branch protection and the later deployment gate.
+See [CI setup and reports](docs/ci.md) for activation and debugging.
+
 ## Deployment
 
 1. Use a managed/restricted PostgreSQL and Redis service or an equivalent private

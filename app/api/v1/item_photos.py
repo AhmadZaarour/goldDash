@@ -1,9 +1,9 @@
-"""Authenticated, locally persisted item photos; no third-party storage required."""
+"""Authenticated item photos with local or private object storage."""
 
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 
 from app.api.v1.inventory_operations import Database
 from app.core.dependencies import CurrentUser
@@ -40,5 +40,5 @@ async def upload_photo(item_id: int, request: Request, db: Database, user: Photo
 
 
 @router.get("/media/items/{filename}", name="read_item_photo")
-async def read_item_photo(filename: str, user: CurrentUser, db: Database) -> FileResponse:
+async def read_item_photo(filename: str, user: CurrentUser, db: Database) -> Response:
     return await read_item_photo_service(filename, user, db)

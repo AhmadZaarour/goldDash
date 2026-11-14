@@ -28,6 +28,7 @@ dependencies = [
     "httpx>=0.28,<1.0",
     # Item photos
     "pillow>=11,<13",
+    "vercel-blob>=0.6,<0.7",
 ]
 
 [dependency-groups]
@@ -54,6 +55,9 @@ dev = [
 
 [project.scripts]
 gold-shop = "app.main:main"
+
+[tool.vercel]
+entrypoint = "app.main:app"
 
 
 # ============================================================

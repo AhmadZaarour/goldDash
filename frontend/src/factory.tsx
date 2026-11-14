@@ -6,6 +6,7 @@ import { useCan } from "./session";
 import { useLanguage } from "./i18n";
 import { useGoldQuote } from "./gold-price";
 import { ServiceSaleButton } from "./servicing";
+import { resizePhoto } from "./item-photo";
 import {
   Busy,
   DataList,
@@ -910,7 +911,11 @@ function ReceiptPhoto({
               const response = await (
                 await raw(
                   `/operations/weight-internal-invoices/${invoiceId}/photos`,
-                  { method: "POST", body: file },
+                  {
+                    method: "POST",
+                    body: await resizePhoto(file),
+                    headers: { "Content-Type": "image/jpeg" },
+                  },
                 )
               ).json();
               change({ ...value, photo_token: response.token });

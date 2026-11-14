@@ -37,6 +37,16 @@ async def test_cors_allows_only_configured_origins_and_exposes_pagination():
         health = await client.get("/health", headers={"Origin": "http://localhost:5173"})
         assert health.json() == {"status": "ok"}
         assert "X-Total-Count" in health.headers["access-control-expose-headers"]
+        put = await client.options(
+            "/api/v1/gold-price/settings",
+            headers={
+                "Origin": "http://localhost:5173",
+                "Access-Control-Request-Method": "PUT",
+                "Access-Control-Request-Headers": "authorization,content-type,x-business-unit",
+            },
+        )
+        assert put.status_code == 200
+        assert put.headers["access-control-allow-origin"] == "http://localhost:5173"
 
 
 async def test_readiness_detects_redis_failure(client, monkeypatch):

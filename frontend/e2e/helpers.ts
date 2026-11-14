@@ -10,7 +10,7 @@ export async function api(page: Page, role = "admin") {
       body = { access_token: "test-token", refresh_token: "test-refresh" };
     else if (path === "/auth/me") body = user;
     else if (path === "/operations/overview")
-      body = { cash_usd: "125", available_pieces: 1, bulk: [] };
+      body = { cash_usd: "125", available_pieces: 1, bulk: [], finished: [] };
     else if (path === "/operations/staff") body = [user];
     else if (path === "/operations/profit")
       body = {

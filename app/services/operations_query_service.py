@@ -82,7 +82,9 @@ async def overview(db: AsyncSession, user: User, location_id: int | None = None)
         cash = cash.where(CashEntry.location_id == location_id)
         gold = gold.where(InventoryBalance.location_id == location_id)
         pieces = pieces.where(InventoryItem.location_id == location_id)
+    from app.services.factory_service import stock
     return {
+        "finished": await stock(db, location_id),
         "unit": active_unit(),
         "cash_usd": str(await db.scalar(cash)) if user.role != "employee" else None,
         "available_pieces": await db.scalar(pieces),

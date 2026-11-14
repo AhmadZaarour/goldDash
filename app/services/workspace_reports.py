@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from app.core.config import settings
 from app.core.workspace import in_workspace
 from app.models import CashEntry, InventoryItem, ItemReturn, PurchaseItem, Sale, SaleItem, SaleStock
+from app.models.factory import FactoryWeightLine
 from app.models.inventoryServicing import ServiceSale
 from app.models.operations import InternalInvoice, ProductionPiece
 
@@ -57,6 +58,11 @@ async def unit_report(db, unit, start, end, location_id=None, *, company=False):
             .join(Sale, Sale.id == SaleStock.sale_id)
             .where(Sale.created_at >= start, Sale.created_at < end)
         )
+        weight_sales = (
+            select(FactoryWeightLine)
+            .join(Sale, Sale.id == FactoryWeightLine.sale_id)
+            .where(Sale.created_at >= start, Sale.created_at < end)
+        )
         expenses = select(func.coalesce(-func.sum(CashEntry.amount_usd), 0)).where(
             CashEntry.kind == "expense", CashEntry.created_at >= start, CashEntry.created_at < end
         )
@@ -64,6 +70,7 @@ async def unit_report(db, unit, start, end, location_id=None, *, company=False):
             func.coalesce(func.sum(ServiceSale.amount_usd), 0), func.count(ServiceSale.id)
         ).where(ServiceSale.created_at >= start, ServiceSale.created_at < end)
         if location_id:
+            weight_sales = weight_sales.where(Sale.location_id == location_id)
             services = services.where(ServiceSale.location_id == location_id)
             sales = sales.where(Sale.location_id == location_id)
             returns = returns.where(Sale.location_id == location_id)
@@ -95,6 +102,10 @@ async def unit_report(db, unit, start, end, location_id=None, *, company=False):
             else:
                 revenue += line.gold_charge_in_grams * line.gold_price_per_gram + line.making_charge
                 cost += line.cost_usd
+            count += 1
+        for line in await db.scalars(weight_sales):
+            revenue += line.total_value_usd
+            cost += line.company_cost_usd if company else line.cost_usd
             count += 1
         service_revenue, service_count = (await db.execute(services)).one()
         expense = await db.scalar(expenses)

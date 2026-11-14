@@ -12,6 +12,7 @@ import {
 import Decimal from "decimal.js";
 import { WorkspaceSummary } from "./operations";
 import { DevelopmentReset } from "./development";
+import { ShowroomReceipts } from "./factory";
 import { ServiceSaleButton } from "./servicing";
 import { BarcodeScanButton } from "./barcode-scanner";
 import { normalizeBarcode } from "./barcode-camera";
@@ -490,6 +491,7 @@ export function Inventory() {
           )
         }
       />
+      <ShowroomReceipts />
       <div className="tabs">
         {["Items", "Bulk balances", "Returns", "Transfers"].map((v) => (
           <button

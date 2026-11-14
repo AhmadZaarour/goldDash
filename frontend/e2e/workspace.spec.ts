@@ -509,7 +509,7 @@ test("item purchase uses one invoice gold charge and offers camera upload", asyn
   );
 });
 
-test("factory sells pieces to suppliers with making charges", async ({
+test("factory sells gold by purity and weight with per-gram making charges", async ({
   page,
 }) => {
   await api(page);
@@ -525,7 +525,7 @@ test("factory sells pieces to suppliers with making charges", async ({
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByLabel("Supplier", { exact: true })).toBeVisible();
   await expect(
-    dialog.getByLabel("Making charge (USD)", { exact: true }),
+    dialog.getByLabel("Making charge / gram (USD)", { exact: true }),
   ).toBeVisible();
 });
 
@@ -653,13 +653,16 @@ test("admin seeds factory cash and gold then records production", async ({
     .fill("20");
   await dialog.getByLabel("Purity", { exact: true }).selectOption("1");
   await dialog.getByLabel("Weight (g)", { exact: true }).nth(0).fill("5");
-  await dialog.getByLabel("Product", { exact: true }).selectOption("1");
-  await dialog.getByLabel("Weight (g)", { exact: true }).nth(1).fill("5");
-  await dialog.getByRole("button", { name: "Confirm", exact: true }).click();
-  await expect(dialog).toHaveCount(0);
+  await expect(dialog.getByLabel("Product", { exact: true })).toHaveCount(0);
+  await dialog
+    .getByRole("button", { name: "Start production", exact: true })
+    .click();
+  await expect(
+    page.getByRole("dialog", { name: "Production batch", exact: true }),
+  ).toBeVisible();
   expect(writes[1]).toMatchObject({
     direct_cost_usd: "20",
     inputs: [{ purity_id: 1, weight: "5" }],
-    pieces: [{ product_id: 1, weight: "5" }],
   });
+  expect(writes[1]).not.toHaveProperty("pieces");
 });

@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.workspace import active_unit, in_workspace
 from app.models import (
     CashEntry,
+    FinishedGoldLot,
     GoldPurity,
     InventoryBalance,
     InventoryItem,
@@ -751,6 +752,10 @@ async def reverse_operation(db, operation_id, note, user_id, unit):
     original = await db.get(OperationDocument, operation_id)
     if original is None or unit not in {original.unit, original.other_unit}:
         raise ValueError("Operation not found in this workspace")
+    if original.kind == "finished_opening":
+        from app.services.factory_service import reverse_seed
+
+        return await reverse_seed(db, original, note, user_id)
     if original.kind not in {
         "opening",
         "capital_in",
@@ -836,6 +841,10 @@ async def reverse_operation(db, operation_id, note, user_id, unit):
 
 async def reverse_production(db, batch_id, note, user_id):
     batch = await db.get(ProductionBatch, batch_id)
+    if batch is not None and batch.tracking_mode == "weight":
+        from app.services.factory_service import reverse_production as reverse_weight
+
+        return await reverse_weight(db, batch_id, note, user_id)
     if batch is None or batch.status != "active":
         raise ValueError("Choose an active factory production batch")
     await lock_locations(db, batch.location_id)
@@ -855,6 +864,17 @@ async def reverse_production(db, batch_id, note, user_id):
                 .with_for_update(of=InventoryItem)
             )
         )
+    for item in items:
+        if item.status == "weight_stock":
+            lot = await db.scalar(
+                select(FinishedGoldLot)
+                .where(FinishedGoldLot.legacy_item_id == item.id)
+                .with_for_update()
+            )
+            if lot is None or lot.remaining_weight != lot.weight:
+                raise ValueError("Converted gold from this historical batch has already been used")
+            lot.remaining_weight = lot.remaining_cost_usd = lot.remaining_company_cost_usd = ZERO
+            item.status = "in_stock"
     if any(
         item.unit != "factory"
         or item.status != "in_stock"
@@ -913,6 +933,10 @@ async def reverse_production(db, batch_id, note, user_id):
 
 async def reverse_internal_invoice(db, invoice_id, note, user_id):
     original = await db.get(InternalInvoice, invoice_id)
+    if original is not None and original.tracking_mode == "weight":
+        from app.services.factory_service import reverse_supply
+
+        return await reverse_supply(db, original, note, user_id)
     if original is None or original.reversal_of_id is not None:
         raise ValueError("Internal invoice not found")
     await lock_locations(db, original.factory_location_id, original.showroom_location_id)
@@ -965,6 +989,26 @@ async def reverse_internal_invoice(db, invoice_id, note, user_id):
         item.location_id = original.factory_location_id
         item.owner_cost_usd = line.factory_cost_usd
         item.acquisition_internal_id = None
+        # Historical internal returns also rejoin the factory's weight ledger.
+        from app.services.factory_service import new_lot
+
+        origin = item.origin_line
+        purity = await db.get(GoldPurity, origin.product.purity_id)
+        lot = new_lot(
+            db,
+            unit="factory",
+            location_id=item.location_id,
+            purity_id=purity.id,
+            weight=origin.weight,
+            cost=line.factory_cost_usd,
+            company_cost=item.company_cost_usd
+            if item.company_cost_usd is not None
+            else line.factory_cost_usd,
+            factor=purchase_factor(purity),
+            batch_id=item.production_piece.batch_id if item.production_piece else None,
+        )
+        lot.legacy_item_id = item.id
+        item.status = "weight_stock"
         db.add(
             InternalInvoiceLine(
                 invoice_id=reversal.id,

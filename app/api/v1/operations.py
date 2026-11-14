@@ -134,7 +134,7 @@ async def history(
     return await queries.history(db, response, limit, offset)
 
 
-@router.post("/production", response_model=OperationResult, status_code=201)
+@router.post("/production", response_model=OperationResult, status_code=201, deprecated=True)
 async def production(data: ProductionCreate, db: Database, user: EmployeeUser, key: IdempotencyKey):
     require_workspace("factory")
     return await service.execute(
@@ -158,7 +158,7 @@ async def production_detail(batch_id: int, db: Database, user: CurrentUser):
     return await queries.production_detail(batch_id, db)
 
 
-@router.post("/internal-invoices", response_model=OperationResult, status_code=201)
+@router.post("/internal-invoices", response_model=OperationResult, status_code=201, deprecated=True)
 async def internal_invoice(
     data: InternalInvoiceCreate, db: Database, user: AdminUser, key: IdempotencyKey
 ):
@@ -219,7 +219,9 @@ async def internal_payments(
     return await queries.internal_payments(db, response, limit, offset)
 
 
-@router.post("/supplier-item-sales", response_model=OperationResult, status_code=201)
+@router.post(
+    "/supplier-item-sales", response_model=OperationResult, status_code=201, deprecated=True
+)
 async def supplier_item_sale(
     data: SupplierItemSaleCreate, db: Database, user: AdminUser, key: IdempotencyKey
 ):

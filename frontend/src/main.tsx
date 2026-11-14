@@ -1,3 +1,4 @@
+import { Production, FactorySales, FactoryInventory } from "./factory";
 import { Servicing } from "./servicing";
 import "@fontsource/dm-sans/latin-400.css";
 import "@fontsource/dm-sans/latin-600.css";
@@ -55,10 +56,8 @@ import {
 } from "./pages";
 import {
   BalanceSetup,
-  Production,
   InternalTrade,
   WorkspaceReports,
-  FactorySales,
   LegacyHistory,
 } from "./operations";
 import { Busy, Form } from "./ui";
@@ -347,7 +346,12 @@ function App() {
                 path="/"
                 element={isLegacy ? <LegacyHistory /> : <Dashboard />}
               />
-              <Route path="/inventory" element={<Inventory />} />
+              <Route
+                path="/inventory"
+                element={
+                  workspace === "factory" ? <FactoryInventory /> : <Inventory />
+                }
+              />
               <Route
                 path="/sales"
                 element={

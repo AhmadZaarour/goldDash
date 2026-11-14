@@ -3,12 +3,13 @@ from decimal import ROUND_HALF_UP, Decimal
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
-from sqlalchemy import func, select, true
+from sqlalchemy import func, select, true, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models import Location
 from app.models.cashLedger import CashEntry
+from app.models.factory import FactoryWeightLine
 from app.models.inventoryItem import InventoryItem
 from app.models.inventoryServicing import ServiceSale
 from app.models.itemReturn import ItemReturn
@@ -110,6 +111,29 @@ async def monthly_profit_service(
         expenses = expenses.where(CashEntry.location_id == location_id)
         supplier = supplier.where(Sale.location_id == location_id)
         supplier_purchases = supplier_purchases.where(Purchase.location_id == location_id)
+    weight_trades = (
+        select(
+            FactoryWeightLine.purity_id,
+            FactoryWeightLine.weight,
+            FactoryWeightLine.gold_24k,
+            FactoryWeightLine.making_usd,
+        )
+        .join(Sale, Sale.id == FactoryWeightLine.sale_id)
+        .where(Sale.created_at >= start, Sale.created_at < end)
+    )
+    if location_id is not None:
+        weight_trades = weight_trades.where(Sale.location_id == location_id)
+    trades = union_all(supplier, weight_trades).subquery()
+    supplier = (
+        select(
+            trades.c.purity_id,
+            func.sum(trades.c.weight_grams).label("weight_grams"),
+            func.sum(trades.c.settlement_grams).label("settlement_grams"),
+            func.sum(trades.c.making_usd).label("making_usd"),
+        )
+        .group_by(trades.c.purity_id)
+        .order_by(trades.c.purity_id)
+    )
     sold, returns = sold.subquery(), returns.subquery()
     # One statement provides a consistent snapshot for all customer profit totals.
     row = (

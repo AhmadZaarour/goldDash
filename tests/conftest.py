@@ -130,7 +130,9 @@ async def purchase_market_quote(monkeypatch):
     monkeypatch.setattr(purchase_service, "get_quote", quote)
     monkeypatch.setattr(sale_service, "get_quote", quote)
     monkeypatch.setattr(operations_service, "get_quote", quote)
-    from app.services import supplier_ledger_service
+    from app.services import factory_service, supplier_ledger_service
+
+    monkeypatch.setattr(factory_service, "get_quote", quote)
 
     monkeypatch.setattr(supplier_ledger_service, "get_quote", quote)
     return values

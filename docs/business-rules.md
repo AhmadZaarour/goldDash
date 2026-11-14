@@ -464,7 +464,8 @@ before loading the selected workspace. Admins can review unassigned history.
 
 Showroom purchases supplier pieces individually, incurs gold debt in 24K-equivalent
 grams plus USD making charges, and sells pieces to customers. Factory creates
-production batches and sells finished pieces to suppliers or Showroom. Both units
+production batches and sells finished gold by purity and weight to suppliers or Showroom.
+Factory does not enter or barcode individual pieces. Both units
 can buy bulk from walk-in customers with immediate payment, including the existing
 zero-USD inventory entry. No customer identity or supplier debt is created by bulk
 purchases. The bulk-buy form automatically uses the active workspace's bucket.
@@ -483,25 +484,52 @@ historical stock whose cost is unknown. Capital is never operating profit.
 
 ### Production and cost
 
-A Factory batch consumes valued bulk and records individual finished pieces,
-recoverable scrap, explained unrecoverable loss and directly paid production
-costs. All weights are checked in 24K-equivalent grams, with 0.001g rounding
-tolerance. Output cannot exceed input. Scrap retains proportional material cost;
-remaining material cost, wastage and direct costs are allocated to finished
-pieces. Direct costs reduce Factory cash and are capitalized into the pieces,
-so they are not deducted twice as an expense. Unknown bulk costs must be recorded
-before production. Each piece retains its barcode, photo and origin metadata.
-Production reversal is available only while all pieces remain available at the
-original Factory location and the original resources can be restored.
+Factory tracks raw bulk, work in progress and finished gold separately. Start a batch
+with valued raw weights by purity at one location; the weights and carrying values
+are removed from available raw stock and held in the batch. A default 24K input
+works alongside mixed-purity inputs. No product selection, piece count or barcode
+is required. Production does not require a market quote.
+
+Record named steps as work proceeds. Each step records **all remaining work** by
+purity, newly recovered scrap (excluding scrap from earlier steps), optional direct
+cash costs and notes. Input for the first step is the starting gold; later steps
+consume the preceding step's remaining output. Physical weights can increase when
+alloy is added: comparisons use purchase purity factors in 24K equivalent, never
+commercial repayment factors. Factors are saved on first use of each purity in the
+batch. Gold quantities for the audit use six decimal places. Gold gains above
+0.000001g are rejected; loss above 0.001g requires an explanation. A step version
+prevents two staff members from recording against the same preceding measurement.
+
+Finishing releases only the last step's output as finished stock by purity and
+returns accumulated scrap to raw stock. Recovered scrap retains its proportional
+input carrying value. Remaining material value, loss and paid direct costs are
+allocated to finished output by 24K content. Direct costs reduce Factory cash once
+and remain capitalized in the stock value. Raw input, step costs and final release
+are idempotent and atomic. Finished stock is consumed FIFO with proportional saved
+carrying values; reservations and sales cannot overspend a weight bucket.
+
+Admins can correct an in-progress batch or an unused finished batch through the
+production reversal, restoring input values and paid costs. After its finished
+gold has been sold or supplied, the dependent supply must be reversed first.
+**Factory gold inventory** also supports explicit finished opening weights and
+carrying values (including zero); these create capital stock, not profit or cash.
+Unused finished opening entries can be reversed from opening-balance history.
 
 ### Internal supply and payment
 
-An admin enters an internal invoice once: Factory pieces, Showroom destination,
-USD making charges per piece and agreed USD per 24K-equivalent gram (live quote
-suggested, manual price applied). Existing pieces move to Showroom, retaining
-barcodes/photos and their original company production costs. Showroom records the
-agreed internal acquisition value. One shared internal gold/USD account represents
-Factory's receivable and Showroom's payable; it is separate from external suppliers.
+An admin supplies Showroom using one weight and making-charge-per-physical-gram
+line per purity, destination and agreed USD per 24K-equivalent gram (live quote
+suggested, manual price applied). The factory weight is consumed immediately and
+recorded as pending Showroom stock. One shared gold/USD account represents Factory's
+receivable and Showroom's payable, separate from external suppliers.
+
+Showroom employees/admins register individual received pieces against the invoice,
+choosing products, weights and optional photos. Partial receipt is allowed; each
+purity's total weight cannot exceed the unregistered balance. New piece barcodes
+are generated on receipt. Their acquisition value is the agreed internal value;
+the original company production cost is preserved separately for combined profit.
+A weighted supply can be reversed while no received pieces have been registered.
+Existing piece-based supply history retains its earlier reversal rules.
 
 Payments move actual gold and/or cash between the two workspaces atomically.
 Acquisition gold remains `18K weight × 0.75 / 0.995` or
@@ -513,8 +541,11 @@ gold and USD balances to reach zero. Internal invoices and payments have audited
 reversals using original factors/costs; invoices cannot reverse after external
 sale history. Ordinary cash/gold transfers move resources without clearing debt.
 
-Factory supplier sales create gold/USD receivables and no cash receipt until
-settlement. Supplier settlements use the same existing repayment equations.
+Factory supplier sales have multiple purity lines: physical weight and USD making
+charge per physical gram. The invoice's total making charge is rounded once to
+cents and allocated across its lines. New sales use a fresh server quote with a
+saved 24K rate. They consume only finished weight, create canonical 24K-gold/USD
+receivables, and create no cash receipt until settlement. Supplier settlements use the same existing repayment equations.
 Received supplier gold is valued from the entered 24K USD rate or the fresh shared
 quote, with carrying value saved for production and exact reversal. A reversal
 never uses today's quote or edited purity settings.
@@ -533,7 +564,7 @@ valuation view; it is not the recorded-cost workspace profit report.
 
 ### Historical cutover and API
 
-Migrations leave existing owned records unassigned (`unit IS NULL`), readable
+The original workspace migration leaves pre-workspace records unassigned (`unit IS NULL`), readable
 through the admin **Unassigned history** workspace. No placement-based ownership
 is inferred. Admins explicitly assign purchases (including linked inventory,
 receipts and supplier ledger), sales (including cash and ledger), cash, pieces,
@@ -541,6 +572,13 @@ bulk balances and supporting history. Linked conflicting ownership rejects the
 assignment. Review remaining categories after assigning invoice roots; historic
 aggregate bulk balances are classified explicitly rather than reconstructed.
 Avoid seeding the same resources again after assigning existing balances.
+
+The weight migration `g12026weight` converts available, already-owned Factory
+pieces into finished-weight lots while retaining original piece, barcode, batch
+and invoice records. Those pieces are marked `weight_stock` to prevent counting
+or selling their gold twice. Their owner/company costs and physical weights are
+preserved; neither Showroom pieces nor unassigned history is converted. After new
+weight activity, downgrade refuses to discard the new records.
 
 Apply `alembic upgrade head` before starting this version. The workspace migration
 refuses downgrade after workspace activity. No business database data is modified
@@ -623,3 +661,29 @@ finished/completed/delivered/done (ignoring case/outer whitespace) become finish
 other statuses become in_progress. It does not infer historical payments or create
 cash receipts from estimates. Downgrade refuses to discard new checkout/intake
 activity. Deploy with `alembic upgrade head` before running the updated app.
+
+
+### Weight workflow API
+
+New endpoints under `/api/v1/operations`:
+
+- `POST weight-production`: reserve raw input and open a weight batch.
+- `POST weight-production/{id}/steps`: save name, outputs, new scrap, paid costs,
+  notes and `expected_step` (the current number of recorded steps).
+- `POST weight-production/{id}/finish`: release output using `expected_step`.
+- `GET finished-stock`: finished weight/value by location and purity.
+- `POST finished-opening`: seed explicitly valued finished gold.
+- `POST supplier-weight-sales`: sell multiple purity/weight/making-per-gram lines.
+- `GET supplier-weight-sales/{sale_id}`: read the saved purity lines.
+- `POST weight-internal-invoices`: supply Showroom by purity and weight.
+- `GET pending-receipts`: unregistered Showroom weight from factory supplies.
+- `POST weight-internal-invoices/{id}/receive`: create Showroom pieces/photos.
+- `POST weight-internal-invoices/{id}/photos`: stage a receipt photo for an
+  Employee/Admin in Showroom while that weight invoice still has a pending receipt.
+  Existing general staging and inventory-photo editing permissions remain unchanged.
+
+All writes use `Idempotency-Key`. Production is Employee/Admin; seeding, supplier
+sales and internal supply are Admin; Showroom receipt is Employee/Admin in the
+Showroom workspace. Existing production history/detail and specialized reversals
+remain available. Earlier piece-creation/sale/supply routes are deprecated
+compatibility endpoints; current factory screens use the weight routes.

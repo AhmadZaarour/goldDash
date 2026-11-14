@@ -208,7 +208,7 @@ async def test_service_migration_preserves_estimates_and_original_statuses():
                 ).fetchone()[0]
                 conn.execute(
                     'INSERT INTO "inventoryServices" '
-                    '(customer_id, barcode, status, cost, notes, unit) '
+                    "(customer_id, barcode, status, cost, notes, unit) "
                     "VALUES (%s, 'OLD-READY', ' Completed ', 42.50, 'Original notes', 'showroom'), "
                     "(%s, 'OLD-WORKING', 'received', 10, NULL, NULL)",
                     (customer, customer),
@@ -255,5 +255,116 @@ async def test_service_migration_preserves_estimates_and_original_statuses():
                 )
             failure = await migrate("downgrade", "e91357f0c122", expected=1)
             assert "Cannot downgrade with new servicing activity" in failure.stderr
+        finally:
+            admin.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(name)))
+
+
+async def test_factory_weight_cutover_preserves_existing_piece_gold_and_cost():
+    name = f"goldshop_migration_test_{uuid4().hex[:12]}"
+    url = make_url(settings.test_database_url)
+    admin_url = url.set(drivername="postgresql", database="postgres").render_as_string(
+        hide_password=False
+    )
+    migration_url = url.set(database=name).render_as_string(hide_password=False)
+    connection_url = url.set(drivername="postgresql", database=name).render_as_string(
+        hide_password=False
+    )
+
+    async def migrate(*args, expected=0):
+        result = await asyncio.to_thread(
+            subprocess.run,
+            [str(PROJECT_ROOT / ".venv/bin/alembic"), *args],
+            cwd=PROJECT_ROOT,
+            env=dict(os.environ, DATABASE_URL=migration_url),
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == expected, result.stderr
+        return result
+
+    with psycopg.connect(admin_url, autocommit=True) as admin:
+        admin.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
+        try:
+            await migrate("upgrade", "f12026service")
+            with psycopg.connect(connection_url) as conn:
+
+                def insert(query, values=None):
+                    return conn.execute(query, values).fetchone()[0]
+
+                user = insert("""INSERT INTO users
+                    (email, username, password_hash, role, is_active)
+                    VALUES ('factory@migration.test', 'factory', 'unused', 'admin', true)
+                    RETURNING id""")
+                location = insert("""INSERT INTO locations (name, code, is_active)
+                    VALUES ('Factory', 'FAC', true) RETURNING id""")
+                purity = insert("""INSERT INTO "goldPurities"
+                    (name, karat, purity, repayment_factor)
+                    VALUES ('18K', 18, 75, 0.74) RETURNING id""")
+                category = insert("INSERT INTO categories (name) VALUES ('Rings') RETURNING id")
+                product = insert(
+                    """INSERT INTO products
+                    (name, sku, category_id, purity_id, inventory_type)
+                    VALUES ('Ring', 'F1', %s, %s, 'item') RETURNING id""",
+                    (category, purity),
+                )
+                operation = insert(
+                    """INSERT INTO business_operations
+                    (unit, kind, location_id, amount_usd, details, note, created_by)
+                    VALUES ('factory', 'production', %s, 0, '{}', 'Old batch', %s)
+                    RETURNING id""",
+                    (location, user),
+                )
+                batch = insert(
+                    """INSERT INTO production_batches
+                    (unit, location_id, material_cost_usd, direct_cost_usd, total_cost_usd,
+                    input_gold_24k, output_gold_24k, scrap_gold_24k, loss_gold_24k, details,
+                    operation_id, gold_quote_at, created_by)
+                    VALUES ('factory', %s, 400, 0, 400, 7.538, 7.538, 0, 0, '{}', %s, now(), %s)
+                    RETURNING id""",
+                    (location, operation, user),
+                )
+                piece = insert(
+                    """INSERT INTO production_pieces
+                    (batch_id, product_id, weight, valuation_factor, gold_charge_24k,
+                    gold_price_per_gram, making_charge, total_cost_usd)
+                    VALUES (%s, %s, 10, 0.7537688442, 7.538, 50, 0, 400)
+                    RETURNING id""",
+                    (batch, product),
+                )
+                item = insert(
+                    """INSERT INTO "inventoryItems"
+                    (unit, production_piece_id, location_id, barcode, status,
+                    owner_cost_usd, company_cost_usd)
+                    VALUES ('factory', %s, %s, 'HISTORICAL-BARCODE', 'in_stock', 500, 400)
+                    RETURNING id""",
+                    (piece, location),
+                )
+            await migrate("upgrade", "head")
+            with psycopg.connect(connection_url) as conn:
+                lot = conn.execute(
+                    "SELECT legacy_item_id, weight, remaining_weight, cost_usd, company_cost_usd "
+                    "FROM finished_gold_lots"
+                ).fetchone()
+                assert lot == (item, Decimal("10"), Decimal("10"), Decimal("500"), Decimal("400"))
+                assert conn.execute(
+                    'SELECT barcode, status FROM "inventoryItems" WHERE id = %s', (item,)
+                ).fetchone() == ("HISTORICAL-BARCODE", "weight_stock")
+                assert conn.execute("SELECT count(*) FROM production_pieces").fetchone()[0] == 1
+            await migrate("check")
+            await migrate("downgrade", "f12026service")
+            with psycopg.connect(connection_url) as conn:
+                assert (
+                    conn.execute(
+                        'SELECT status FROM "inventoryItems" WHERE id = %s', (item,)
+                    ).fetchone()[0]
+                    == "in_stock"
+                )
+            await migrate("upgrade", "head")
+            with psycopg.connect(connection_url) as conn:
+                conn.execute(
+                    "UPDATE finished_gold_lots SET remaining_weight = remaining_weight - 1"
+                )
+            failure = await migrate("downgrade", "f12026service", expected=1)
+            assert "Cannot downgrade after factory weight activity" in failure.stderr
         finally:
             admin.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(name)))

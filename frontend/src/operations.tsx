@@ -1,8 +1,9 @@
+import { WeightTradeForm } from "./factory";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import Decimal from "decimal.js";
-import { all, get, raw, Operation, type Row } from "./api";
+import { all, get, Operation, type Row } from "./api";
 import { useLanguage } from "./i18n";
 import { useCan, useUser, useWorkspace } from "./session";
 import { useGoldQuote } from "./gold-price";
@@ -42,22 +43,6 @@ const purity: Field = {
   resource: "goldpurities",
   required: true,
 };
-const itemProduct: Field = {
-  key: "product_id",
-  label: "Product",
-  type: "select",
-  resource: "products",
-  required: true,
-  filter: (row) => row.inventory_type === "item",
-};
-const piece: Field = {
-  key: "inventory_item_id",
-  label: "Piece",
-  type: "select",
-  resource: "inventory/items",
-  required: true,
-  filter: (row) => row.status === "in_stock",
-};
 const operationLabels: Record<string, string> = {
   opening: "Opening balance",
   capital_in: "Capital addition",
@@ -66,6 +51,7 @@ const operationLabels: Record<string, string> = {
   gold_transfer: "Gold transfer",
   valuation: "Stock valuation",
   production: "Production",
+  finished_opening: "Seed finished gold",
   production_reversal: "Production reversal",
   reversal: "Operation reversal",
   legacy_assignment: "Ownership assignment",
@@ -115,12 +101,6 @@ function useDone(close: () => void) {
     void query.invalidateQueries();
     close();
   };
-}
-function ids(rows: Values[]) {
-  return rows.map((row) => ({
-    inventory_item_id: Number(row.inventory_item_id),
-    making_usd: String(row.making_usd || "0"),
-  }));
 }
 function gold(rows: Values[]) {
   return rows.map((row) => ({
@@ -192,9 +172,12 @@ export function WorkspaceSummary({
   const query = useQuery({
     queryKey: ["list", "workspace-overview"],
     queryFn: () =>
-      get<{ cash_usd: string; available_pieces: number; bulk: Row[] }>(
-        "/operations/overview",
-      ),
+      get<{
+        cash_usd: string;
+        available_pieces: number;
+        bulk: Row[];
+        finished?: Row[];
+      }>("/operations/overview"),
   });
   if (unit === "legacy") return null;
   return (
@@ -211,14 +194,29 @@ export function WorkspaceSummary({
             <strong dir="ltr">${money(query.data?.cash_usd)}</strong>
           </div>
         )}
-        {showPieces && (
+        {showPieces && unit !== "factory" && (
           <div className="stat compact">
             <span>{t("Available pieces")}</span>
             <strong>{query.data?.available_pieces ?? "—"}</strong>
           </div>
         )}
+        {unit === "factory" && (
+          <div className="stat compact">
+            <span>{t("Finished gold (g)")}</span>
+            <strong>
+              {(query.data?.finished || [])
+                .reduce(
+                  (sum, row) => sum.plus(String(row.weight || 0)),
+                  new Decimal(0),
+                )
+                .toFixed(3)}
+            </strong>
+          </div>
+        )}
         <div className="stat compact">
-          <span>{t("Bulk gold (g)")}</span>
+          <span>
+            {t(unit === "factory" ? "Raw gold (g)" : "Bulk gold (g)")}
+          </span>
           <strong>
             {(query.data?.bulk || [])
               .reduce(
@@ -474,6 +472,7 @@ export function BalanceSetup() {
             "adjustment",
             "cash_transfer",
             "gold_transfer",
+            "finished_opening",
           ].includes(String(reverse.kind)) && (
             <Form
               fields={[note]}
@@ -492,433 +491,6 @@ export function BalanceSetup() {
         </Modal>
       )}
     </>
-  );
-}
-
-function StagePhoto({
-  value,
-  change,
-  onBusy,
-}: {
-  value: Values;
-  change: (value: Values) => void;
-  onBusy: (busy: boolean) => void;
-}) {
-  const { t } = useLanguage();
-  const [error, setError] = useState<unknown>();
-  const [preview, setPreview] = useState("");
-  useEffect(
-    () => () => {
-      if (preview) URL.revokeObjectURL(preview);
-    },
-    [preview],
-  );
-  return (
-    <div>
-      {preview && (
-        <img src={preview} alt={t("Photo")} className="piece-photo" />
-      )}
-      <label>
-        {t("Take / choose photo")}
-        <input
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          capture="environment"
-          onChange={async (e) => {
-            const file = e.target.files?.[0];
-            if (!file) return;
-            onBusy(true);
-            setError(undefined);
-            try {
-              const result = await (
-                await raw("/purchases/photos", { method: "POST", body: file })
-              ).json();
-              setPreview(URL.createObjectURL(file));
-              change({ ...value, photo_token: result.token });
-            } catch (e) {
-              setError(e);
-            } finally {
-              onBusy(false);
-            }
-          }}
-        />
-      </label>
-      <ErrorBox error={error} />
-    </div>
-  );
-}
-
-export function Production() {
-  const { t } = useLanguage();
-  const can = useCan();
-  const [open, setOpen] = useState(false);
-  const [head, setHead] = useState<Values>({
-    direct_cost_usd: "0",
-    loss_gold_24k: "0",
-  });
-  const [inputs, setInputs] = useState<Values[]>([{}]);
-  const [scrap, setScrap] = useState<Values[]>([]);
-  const [pieces, setPieces] = useState<Values[]>([
-    { _key: crypto.randomUUID() },
-  ]);
-  const [busy, setBusy] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [error, setError] = useState<unknown>();
-  const [selected, setSelected] = useState<Row>();
-  const op = useRef(new Operation());
-  const done = useDone(() => {
-    setOpen(false);
-    setSelected(undefined);
-    setInputs([{}]);
-    setScrap([]);
-    setPieces([{ _key: crypto.randomUUID() }]);
-  });
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setError(undefined);
-    try {
-      await op.current.send(
-        "/operations/production",
-        {
-          location_id: Number(head.location_id),
-          reference: head.reference || null,
-          note: head.note || null,
-          direct_cost_usd: String(head.direct_cost_usd || 0),
-          loss_gold_24k: String(head.loss_gold_24k || 0),
-          inputs: gold(inputs),
-          scrap: gold(scrap),
-          pieces: pieces.map((p) => ({
-            product_id: Number(p.product_id),
-            weight: String(p.weight),
-            ...(p.image_url ? { image_url: p.image_url } : {}),
-            ...(p.photo_token ? { photo_token: p.photo_token } : {}),
-          })),
-        },
-        "POST",
-        true,
-      );
-      done();
-    } catch (e) {
-      setError(e);
-    } finally {
-      setBusy(false);
-    }
-  }
-  const detail = useQuery({
-    queryKey: ["list", "production-detail", selected?.id],
-    queryFn: () => get<Row>(`/operations/production/${selected!.id}`),
-    enabled: !!selected,
-  });
-  return (
-    <>
-      <Heading
-        title="Production"
-        description="Turn factory bulk gold into finished pieces, keeping scrap, loss and production costs accounted for."
-      />
-      {can.employee && (
-        <button onClick={() => setOpen(true)}>{t("Start production")}</button>
-      )}
-      <section className="panel">
-        <DataList
-          path="/operations/production"
-          searchable={false}
-          columns={[
-            { key: "reference", label: "Reference" },
-            { key: "status", label: "Status" },
-            { key: "input_gold_24k", label: "Input gold (24K g)" },
-            { key: "output_gold_24k", label: "Finished gold (24K g)" },
-            { key: "total_cost_usd", label: "Production cost (USD)" },
-            {
-              key: "created_at",
-              label: "Date",
-              render: (r) => date(r.created_at),
-            },
-          ]}
-          view={setSelected}
-        />
-      </section>
-      {open && (
-        <Modal title="Start production" close={() => setOpen(false)}>
-          <form onSubmit={submit}>
-            <fieldset disabled={busy || uploading}>
-              <Fields
-                fields={[
-                  locationField,
-                  { key: "reference", label: "Reference", maxLength: 100 },
-                  amount("direct_cost_usd", "Production costs paid (USD)"),
-                  amount("loss_gold_24k", "Unrecoverable loss (24K g)"),
-                  { ...note, required: false },
-                ]}
-                values={head}
-                set={setHead}
-              />
-              <p>
-                {t(
-                  "Production costs are paid from the factory drawer and included in the pieces' cost.",
-                )}
-              </p>
-              <h3>{t("Bulk gold consumed")}</h3>
-              <GoldRows rows={inputs} change={setInputs} />
-              <h3>{t("Finished pieces")}</h3>
-              {pieces.map((p, i) => (
-                <section className="line-item" key={String(p._key)}>
-                  <Fields
-                    fields={[itemProduct, amount("weight", "Weight (g)")]}
-                    values={p}
-                    set={(next) =>
-                      setPieces(pieces.map((row, j) => (i === j ? next : row)))
-                    }
-                  />
-                  <StagePhoto
-                    value={p}
-                    change={(next) =>
-                      setPieces((current) =>
-                        current.map((row) =>
-                          row._key === p._key ? next : row,
-                        ),
-                      )
-                    }
-                    onBusy={setUploading}
-                  />
-                  {pieces.length > 1 && (
-                    <button
-                      type="button"
-                      className="ghost danger"
-                      onClick={() =>
-                        setPieces(pieces.filter((_, j) => i !== j))
-                      }
-                    >
-                      {t("Remove")}
-                    </button>
-                  )}
-                </section>
-              ))}
-              <button
-                type="button"
-                className="secondary"
-                onClick={() =>
-                  setPieces([...pieces, { _key: crypto.randomUUID() }])
-                }
-              >
-                {t("Add piece")}
-              </button>
-              <h3>{t("Recoverable scrap")}</h3>
-              <GoldRows rows={scrap} change={setScrap} />
-              <p>
-                {t(
-                  "Gold inputs must equal finished pieces, scrap and declared loss in 24K equivalent.",
-                )}
-              </p>
-            </fieldset>
-            <ErrorBox error={error} />
-            <footer>
-              <button disabled={busy || uploading}>
-                {t(busy ? "Working…" : "Confirm")}
-              </button>
-            </footer>
-          </form>
-        </Modal>
-      )}
-      {selected && (
-        <Modal title="Details" close={() => setSelected(undefined)}>
-          <ErrorBox error={detail.error} />
-          {detail.isLoading ? (
-            <Busy />
-          ) : (
-            <>
-              <p>
-                {text(detail.data?.reference)} · {text(detail.data?.status)}
-              </p>
-              <p>
-                {t("Production cost (USD)")}: $
-                {money(detail.data?.total_cost_usd)}
-              </p>
-              <h3>{t("Bulk gold consumed")}</h3>
-              <GoldAudit
-                rows={
-                  (detail.data?.details as { inputs?: Row[] })?.inputs || []
-                }
-              />
-              <h3>{t("Recoverable scrap")}</h3>
-              <GoldAudit
-                rows={(detail.data?.details as { scrap?: Row[] })?.scrap || []}
-              />
-              <h3>{t("Finished pieces")}</h3>
-              {((detail.data?.pieces as Row[]) || []).map((piece) => (
-                <div className="line-item" key={piece.id}>
-                  <ReferenceName resource="products" value={piece.product_id} />
-                  <p>
-                    {text(piece.barcode)} · {text(piece.weight)} g · $
-                    {money(piece.total_cost_usd)}
-                  </p>
-                </div>
-              ))}
-              {can.admin && detail.data?.status === "active" && (
-                <Form
-                  fields={[note]}
-                  button="Reverse"
-                  submit={(v) =>
-                    op.current.send(
-                      `/operations/production/${selected.id}/reverse`,
-                      v,
-                      "POST",
-                      true,
-                    )
-                  }
-                  done={done}
-                />
-              )}
-            </>
-          )}
-        </Modal>
-      )}
-    </>
-  );
-}
-
-function PieceLines({
-  rows,
-  change,
-}: {
-  rows: Values[];
-  change: (rows: Values[]) => void;
-}) {
-  const { t } = useLanguage();
-  return (
-    <>
-      {rows.map((row, i) => (
-        <section className="line-item" key={i}>
-          <Fields
-            fields={[piece, amount("making_usd", "Making charge (USD)")]}
-            values={row}
-            set={(next) => change(rows.map((r, j) => (i === j ? next : r)))}
-          />
-          {rows.length > 1 && (
-            <button
-              type="button"
-              className="ghost danger"
-              onClick={() => change(rows.filter((_, j) => i !== j))}
-            >
-              {t("Remove")}
-            </button>
-          )}
-        </section>
-      ))}
-      <button
-        type="button"
-        className="secondary"
-        onClick={() => change([...rows, {}])}
-      >
-        {t("Add piece")}
-      </button>
-    </>
-  );
-}
-
-function SupplyForm({
-  done,
-  external = false,
-}: {
-  done: () => void;
-  external?: boolean;
-}) {
-  const { t } = useLanguage();
-  const quote = useGoldQuote();
-  const [head, setHead] = useState<Values>({});
-  const [rows, setRows] = useState<Values[]>([{}]);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<unknown>();
-  const op = useRef(new Operation());
-  const suggested = useRef(false);
-  useEffect(() => {
-    if (quote.data && !quote.data.stale && !suggested.current) {
-      suggested.current = true;
-      setHead((current) => ({
-        ...current,
-        gold_price_usd: new Decimal(quote.data.gram_24k_usd).toFixed(4),
-      }));
-    }
-  }, [quote.data]);
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setError(undefined);
-    try {
-      await op.current.send(
-        external
-          ? "/operations/supplier-item-sales"
-          : "/operations/internal-invoices",
-        {
-          location_id: Number(head.location_id),
-          ...(external
-            ? {
-                supplier_id: Number(head.supplier_id),
-                invoice_number: head.invoice_number || null,
-              }
-            : {
-                showroom_location_id: Number(head.showroom_location_id),
-                gold_price_usd: String(head.gold_price_usd),
-              }),
-          pieces: ids(rows),
-          note: head.note || null,
-        },
-        "POST",
-        true,
-      );
-      done();
-    } catch (e) {
-      setError(e);
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <form onSubmit={submit}>
-      <fieldset disabled={busy}>
-        <Fields
-          fields={[
-            locationField,
-            ...(external
-              ? [
-                  {
-                    key: "supplier_id",
-                    label: "Supplier",
-                    type: "select" as const,
-                    resource: "suppliers",
-                    required: true,
-                  },
-                  {
-                    key: "invoice_number",
-                    label: "Invoice number",
-                    maxLength: 50,
-                  },
-                ]
-              : [
-                  {
-                    ...locationField,
-                    key: "showroom_location_id",
-                    label: "Showroom location",
-                  },
-                  amount("gold_price_usd", "Agreed USD per 24K gram"),
-                ]),
-            { ...note, required: false },
-          ]}
-          values={head}
-          set={setHead}
-        />
-        <PieceLines rows={rows} change={setRows} />
-        <p>
-          {t(
-            "Gold is recorded as 24K-equivalent debt. Making charges remain separate in USD.",
-          )}
-        </p>
-      </fieldset>
-      <ErrorBox error={error} />
-      <footer>
-        <button disabled={busy}>{t(busy ? "Working…" : "Confirm")}</button>
-      </footer>
-    </form>
   );
 }
 
@@ -1196,7 +768,7 @@ export function InternalTrade() {
           close={() => setAction("")}
         >
           {action === "supply" ? (
-            <SupplyForm done={done} />
+            <WeightTradeForm done={done} />
           ) : (
             balance.data && (
               <InternalPaymentForm balance={balance.data} done={done} />
@@ -1228,71 +800,6 @@ export function InternalTrade() {
               done={done}
             />
           )}
-        </Modal>
-      )}
-    </>
-  );
-}
-
-function FactorySaleDetail({ sale }: { sale: Row }) {
-  const { t } = useLanguage();
-  return (
-    <>
-      <p>
-        {t("Invoice number")}: {text(sale.invoice_number)}
-      </p>
-      <DataList
-        path={`/sales/item/${sale.id}`}
-        columns={[
-          { key: "inventory_item_id", label: "Piece" },
-          { key: "gold_24k", label: "Gold debt (24K equivalent g)" },
-          { key: "making_usd", label: "Making charge (USD)" },
-          { key: "sell_price", label: "Recorded value (USD)" },
-        ]}
-      />
-    </>
-  );
-}
-
-export function FactorySales() {
-  const [selected, setSelected] = useState<Row>();
-  const { t } = useLanguage();
-  const can = useCan();
-  const [open, setOpen] = useState(false);
-  const done = useDone(() => setOpen(false));
-  return (
-    <>
-      {selected && (
-        <Modal title="Supplier sale" close={() => setSelected(undefined)}>
-          <FactorySaleDetail sale={selected} />
-        </Modal>
-      )}
-      <Heading
-        title="Supplier sales"
-        description="Sell finished factory pieces to suppliers. Gold and making charges are recorded as receivables."
-      />
-      {can.admin && (
-        <button onClick={() => setOpen(true)}>{t("Sell to supplier")}</button>
-      )}
-      <section className="panel">
-        <DataList
-          path="/sales"
-          view={setSelected}
-          columns={[
-            { key: "id", label: "ID" },
-            { key: "invoice_number", label: "Invoice number" },
-            { key: "supplier_id", label: "Supplier" },
-            {
-              key: "created_at",
-              label: "Date",
-              render: (r) => date(r.created_at),
-            },
-          ]}
-        />
-      </section>
-      {open && (
-        <Modal title="Sell to supplier" close={() => setOpen(false)}>
-          <SupplyForm external done={done} />
         </Modal>
       )}
     </>

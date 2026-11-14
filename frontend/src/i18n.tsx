@@ -11,6 +11,49 @@ const en: Record<string, string> = {
   service_sale: "Service sale",
 };
 const ar: Record<string, string> = {
+  "Raw gold transfer": "تحويل الذهب الخام",
+  "Add purity": "إضافة عيار",
+  Finished: "مكتمل",
+  "Factory gold inventory": "مخزون ذهب المصنع",
+  "Raw gold input": "الذهب الخام المدخل",
+  "Raw bulk gold": "ذهب خام",
+  "Raw gold (g)": "الذهب الخام (غ)",
+  "Finished gold": "ذهب مُصنّع",
+  "Finished gold (g)": "الذهب المُصنّع (غ)",
+  "Seed finished gold": "إدخال رصيد ذهب مُصنّع",
+  "Available finished gold": "الذهب المُصنّع المتاح",
+  "Production batch": "دفعة إنتاج",
+  "Production batches": "دفعات الإنتاج",
+  "Record production step": "تسجيل مرحلة إنتاج",
+  "Step name": "اسم المرحلة",
+  "Output after this step": "الناتج بعد هذه المرحلة",
+  "Newly recovered scrap": "القصاصات المستردة في هذه المرحلة",
+  "Loss (24K g)": "الفاقد (غ مكافئ 24 قيراط)",
+  "Output gold (24K g)": "الذهب الناتج (غ مكافئ 24 قيراط)",
+  "Gold (24K equivalent g)": "الذهب (غ مكافئ 24 قيراط)",
+  "Save step": "حفظ المرحلة",
+  "Finish production": "إكمال الإنتاج",
+  "Historical pieces": "القطع التاريخية",
+  "Making charge / gram (USD)": "المصنعية لكل غرام (دولار)",
+  "Factory stock awaiting piece registration": "ذهب المصنع بانتظار تسجيل القطع",
+  "Register received pieces": "تسجيل القطع المستلمة",
+  "Photo attached": "تم إرفاق الصورة",
+  "Track raw gold through production steps, then release finished weight by purity.":
+    "تتبّع الذهب الخام عبر مراحل الإنتاج، ثم سجّل الوزن المُصنّع حسب العيار.",
+  "Starting a batch reserves its raw gold. Finished stock becomes available only after completion.":
+    "بدء الدفعة يحجز ذهبها الخام. يتاح الذهب المُصنّع بعد إكمال الإنتاج فقط.",
+  "Weigh all gold remaining in the batch by purity, including work still in progress. Do not include scrap recovered in earlier steps.":
+    "زن كل الذهب المتبقي في الدفعة حسب العيار، بما فيه العمل الجاري. لا تُضف قصاصات استُردّت في مراحل سابقة.",
+  "Loss is calculated automatically in 24K equivalent. Explain any loss in the step notes.":
+    "يُحسب الفاقد تلقائياً بمكافئ عيار 24. وضّح الفاقد في ملاحظات المرحلة.",
+  "Making charge is USD per physical gram. Gold receivables use 24K equivalent; settlement factors remain unchanged.":
+    "المصنعية بالدولار لكل غرام فعلي. يُسجّل الذهب المستحق بمكافئ عيار 24 باستخدام عوامل التسوية المعتمدة.",
+  "Sell finished gold by purity and weight. Gold and making charges are recorded as receivables.":
+    "بِع الذهب المُصنّع حسب العيار والوزن. يُسجّل الذهب والمصنعية كمستحقات.",
+  "Raw gold and finished gold are tracked separately by purity and weight.":
+    "يُتتبّع الذهب الخام والمُصنّع بشكل منفصل حسب العيار والوزن.",
+  "Enter pieces from this invoice. Their total weight cannot exceed the remaining weight for each purity.":
+    "أدخل قطع هذه الفاتورة. يجب ألا يتجاوز مجموع أوزانها الوزن المتبقي لكل عيار.",
   service_sale: "بيع خدمة",
   "Gross profit including services (USD)":
     "إجمالي الربح شاملاً الخدمات (دولار)",

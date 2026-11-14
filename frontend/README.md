@@ -160,8 +160,14 @@ staff access on Staff accounts. Showroom handles supplier piece purchases and
 customer checkout. Both units buy bulk. Factory has Production and Supplier sales.
 Opening balances seeds each unit's drawer and valued bulk independently; later
 additions, corrections and paired transfers remain in its audit history. Production
-records inputs, pieces/photos, scrap, loss and paid costs. Factory / Showroom account
-records internal supplies once and moves actual gold/cash on payment. Workspace
+reserves raw input, records named steps and measured remaining weights/scrap by
+purity, and calculates loss in 24K equivalent. Finishing adds weight to finished
+stock; Factory does not register individual pieces. **Factory gold inventory**
+shows raw and finished balances and allows explicit finished opening balances.
+Supplier sales enter weight and making charge per physical gram for each purity.
+Factory / Showroom account records internal supplies by weight; Showroom registers
+individual pieces and photos from pending receipts in Inventory. Actual gold/cash
+moves on payment under the existing repayment rules. Workspace
 reports offer separate margins and combined profit excluding internal trade.
 Unassigned history lets admins explicitly classify pre-migration records.
 See the root business-rules document for cost, conversion and cutover details.

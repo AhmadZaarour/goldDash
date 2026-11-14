@@ -3,6 +3,7 @@
 from app.models.cashLedger import CashEntry, CashReconciliation
 from app.models.categories import Category
 from app.models.customers import Customer
+from app.models.factory import FactoryWeightLine, FinishedGoldLot
 from app.models.goldPurities import GoldPurity
 from app.models.inventoryBalance import InventoryBalance
 from app.models.inventoryItem import InventoryItem
@@ -36,6 +37,8 @@ from app.models.suppliers import Supplier
 from app.models.user import User, UserRole
 
 __all__ = [
+    "FactoryWeightLine",
+    "FinishedGoldLot",
     "OperationDocument",
     "ProductionBatch",
     "ProductionPiece",

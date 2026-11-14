@@ -50,6 +50,9 @@ class OperationDocument(Base):
 
 class ProductionBatch(UnitOwned, Base):
     __tablename__ = "production_batches"
+    tracking_mode: Mapped[str] = mapped_column(
+        String(20), default="pieces", server_default="pieces"
+    )
     id: Mapped[int] = mapped_column(primary_key=True)
     location_id: Mapped[int] = mapped_column(ForeignKey("locations.id"))
     status: Mapped[str] = mapped_column(String(20), default="active", server_default="active")
@@ -64,7 +67,7 @@ class ProductionBatch(UnitOwned, Base):
     loss_gold_24k: Mapped[Decimal] = mapped_column(Numeric(20, 6))
     details: Mapped[dict] = mapped_column(JSON)
     operation_id: Mapped[int] = mapped_column(ForeignKey("business_operations.id"))
-    gold_quote_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    gold_quote_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -72,7 +75,8 @@ class ProductionBatch(UnitOwned, Base):
 class ProductionPiece(Base):
     __tablename__ = "production_pieces"
     id: Mapped[int] = mapped_column(primary_key=True)
-    batch_id: Mapped[int] = mapped_column(ForeignKey("production_batches.id"), index=True)
+    batch_id: Mapped[int | None] = mapped_column(ForeignKey("production_batches.id"), index=True)
+    internal_invoice_id: Mapped[int | None] = mapped_column(ForeignKey("internal_invoices.id"))
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id"))
     product: Mapped["Product"] = relationship(lazy="joined")
     weight: Mapped[Decimal] = mapped_column(Numeric(14, 3))
@@ -89,6 +93,9 @@ class ProductionPiece(Base):
 
 class InternalInvoice(Base):
     __tablename__ = "internal_invoices"
+    tracking_mode: Mapped[str] = mapped_column(
+        String(20), default="pieces", server_default="pieces"
+    )
     id: Mapped[int] = mapped_column(primary_key=True)
     factory_location_id: Mapped[int] = mapped_column(ForeignKey("locations.id"))
     showroom_location_id: Mapped[int] = mapped_column(ForeignKey("locations.id"))

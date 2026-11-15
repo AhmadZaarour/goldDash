@@ -51,15 +51,12 @@ No printer commands or print-specific label templates are included.
 
 Cashiers/admins can use **Take / choose photo** in the item detail dialog. The
 browser downsizes the image before upload; the backend validates and normalizes
-it again, strips metadata and stores it locally in `ITEM_IMAGE_DIR` (default
-`var/item-images`) or in private Vercel Blob storage. All photo inputs compress
-uploads below 4 MiB to fit Vercel's request limit. JPEG, PNG and WebP are accepted; decoding other phone formats
+it again, strips metadata and stores it in `ITEM_IMAGE_DIR` (default
+`var/item-images`). JPEG, PNG and WebP are accepted; decoding other phone formats
 depends on the browser. Uploaded images are served only to authenticated users.
 External image URLs are still supported. Before production, mount ITEM_IMAGE_DIR
 on persistent storage and include it in backups alongside PostgreSQL. HTTPS is
 required for a secure phone/tablet deployment.
-See [Vercel setup](../docs/vercel-deployment.md) for private Blob storage and the
-separate frontend/backend projects.
 
 ## Check
 

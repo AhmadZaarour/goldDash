@@ -1,31 +1,27 @@
 import asyncio
 import io
-import logging
-import os
 import re
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Annotated
 from uuid import uuid4
 
 from fastapi import Depends, HTTPException, Request
-from fastapi.responses import Response
+from fastapi.responses import FileResponse
 from PIL import Image, ImageOps, UnidentifiedImageError
 from sqlalchemy import select
 
 from app.api.v1.inventory_operations import Database
+from app.core.config import settings
 from app.core.dependencies import CurrentUser
 from app.core.workspace import active_unit
 from app.models.inventoryItem import InventoryItem
 from app.models.photoUpload import PhotoUpload
 from app.models.user import User
-from app.services.photo_storage import delete_photo, read_photo, write_photo
 
 LIMIT = 10 * 1024 * 1024
-VERCEL_LIMIT = 4 * 1024 * 1024
-logger = logging.getLogger(__name__)
 
-
-def normalize_photo(data: bytes) -> bytes:
+def save_photo(data: bytes) -> str:
     try:
         with Image.open(io.BytesIO(data)) as source:
             if source.format not in {"JPEG", "PNG", "WEBP"}:
@@ -38,29 +34,21 @@ def normalize_photo(data: bytes) -> bytes:
             image.save(output, format="JPEG", quality=85)
     except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError) as error:
         raise HTTPException(422, "Invalid or unsupported photo") from error
-    return output.getvalue()
-
-
-async def receive_photo(request: Request) -> str:
-    limit = VERCEL_LIMIT if os.environ.get("VERCEL") == "1" else LIMIT
-    data = bytearray()
-    async for chunk in request.stream():
-        data.extend(chunk)
-        if len(data) > limit:
-            raise HTTPException(413, f"Photo must be smaller than {limit // (1024 * 1024)} MB")
-    normalized = await asyncio.to_thread(normalize_photo, bytes(data))
+    root = Path(settings.item_image_dir)
+    root.mkdir(parents=True, exist_ok=True)
     filename = uuid4().hex + ".jpg"
-    await write_photo(filename, normalized)
+    (root / filename).write_bytes(output.getvalue())
     return filename
 
 
-async def discard_photo(filename: str) -> None:
-    # A cleanup outage must not hide a database error or turn a committed upload
-    # into a failed request that the user will retry.
-    try:
-        await delete_photo(filename)
-    except HTTPException:
-        logger.warning("Could not clean up unattached item photo %s", filename)
+async def receive_photo(request: Request) -> str:
+    data = bytearray()
+    async for chunk in request.stream():
+        data.extend(chunk)
+        if len(data) > LIMIT:
+            raise HTTPException(413, "Photo must be smaller than 10 MB")
+    filename = await asyncio.to_thread(save_photo, bytes(data))
+    return filename
 
 
 async def photo_user(user: CurrentUser) -> User:
@@ -72,7 +60,6 @@ async def photo_user(user: CurrentUser) -> User:
 
 
 PhotoUser = Annotated[User, Depends(photo_user)]
-
 
 async def stage_photo_service(request: Request, db: Database, user: PhotoUser) -> dict[str, str]:
     # Lock expired rows so cleanup cannot race purchase attachment or another cleanup.
@@ -100,16 +87,14 @@ async def stage_photo_service(request: Request, db: Database, user: PhotoUser) -
         await db.commit()
     except Exception:
         await db.rollback()
-        await discard_photo(filename)
+        await asyncio.to_thread((Path(settings.item_image_dir) / filename).unlink, missing_ok=True)
         raise
     for old in old_files:
-        await discard_photo(old)
+        await asyncio.to_thread((Path(settings.item_image_dir) / old).unlink, missing_ok=True)
     return {"token": token, "image_url": f"/api/v1/media/items/{filename}"}
 
 
-async def upload_photo_service(
-    item_id: int, request: Request, db: Database, user: PhotoUser
-) -> InventoryItem:
+async def upload_photo_service(item_id: int, request: Request, db: Database, user: PhotoUser) -> InventoryItem:
     item = await db.get(InventoryItem, item_id)
     if item is None:
         raise HTTPException(404, "Item not found")
@@ -119,13 +104,13 @@ async def upload_photo_service(
         await db.commit()
     except Exception:
         await db.rollback()
-        await discard_photo(filename)
+        await asyncio.to_thread((Path(settings.item_image_dir) / filename).unlink, missing_ok=True)
         raise
     await db.refresh(item)
     return item
 
 
-async def read_item_photo_service(filename: str, user: CurrentUser, db: Database) -> Response:
+async def read_item_photo_service(filename: str, user: CurrentUser, db: Database) -> FileResponse:
     if not re.fullmatch(r"[a-f0-9]{32}\.jpg", filename):
         raise HTTPException(404, "Photo not found")
     owned = await db.scalar(
@@ -137,14 +122,16 @@ async def read_item_photo_service(filename: str, user: CurrentUser, db: Database
             PhotoUpload.filename == filename,
             PhotoUpload.created_by == user.id,
             PhotoUpload.inventory_item_id.is_(None),
-            PhotoUpload.expires_at > datetime.now(UTC),
         )
         .limit(1)
     )
     if owned is None and staged is None:
         raise HTTPException(404, "Photo not found")
-    return Response(
-        await read_photo(filename),
+    path = Path(settings.item_image_dir) / filename
+    if not await asyncio.to_thread(path.is_file):
+        raise HTTPException(404, "Photo not found")
+    return FileResponse(
+        path,
         media_type="image/jpeg",
         headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"},
     )

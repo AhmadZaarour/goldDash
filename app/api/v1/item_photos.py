@@ -1,4 +1,4 @@
-"""Authenticated, locally persisted item photos; no third-party storage required."""
+"""Authenticated item photos with local or private object storage."""
 
 from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse
@@ -26,5 +26,5 @@ async def upload_photo(item_id: int, request: Request, db: Database, user: Cashi
 
 
 @router.get("/media/items/{filename}", name="read_item_photo")
-async def read_item_photo(filename: str, user: CurrentUser, db: Database) -> FileResponse:
+async def read_item_photo(filename: str, user: CurrentUser, db: Database) -> Response:
     return await read_item_photo_service(filename, user, db)

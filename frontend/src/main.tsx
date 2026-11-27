@@ -1,6 +1,5 @@
 import { Production, FactorySales, FactoryInventory } from "./factory";
 import { Servicing } from "./servicing";
-import { AdminData } from "./admin-data";
 import "@fontsource/dm-sans/latin-400.css";
 import "@fontsource/dm-sans/latin-600.css";
 import "@fontsource/noto-sans-arabic/arabic-400.css";
@@ -30,7 +29,6 @@ import {
   UserPlus,
   LogOut,
   Languages,
-  Database,
   Menu,
   X,
 } from "lucide-react";
@@ -70,6 +68,11 @@ const client = new QueryClient({
     mutations: { retry: false },
   },
 });
+const workspaceLabels = {
+  showroom: "Showroom",
+  factory: "Factory",
+  legacy: "Unassigned history",
+};
 function App() {
   const { t, toggle, lang } = useLanguage();
   const [user, setUser] = useState<User | null>(null);
@@ -86,14 +89,15 @@ function App() {
     navigate("/");
   }
   function signedIn(me: User) {
-    const allowed =
-      me.role === "admin" || me.workspace_access === "both"
-        ? ["factory", "showroom", ...(me.role === "admin" ? ["legacy"] : [])]
-        : [me.workspace_access || "showroom"];
-    if (!allowed.includes(getWorkspace())) {
-      setWorkspace(me.workspace_access === "factory" ? "factory" : "showroom");
-      changeWorkspace(getWorkspace());
-    }
+    const saved = getWorkspace();
+    const unit =
+      me.role === "employee"
+        ? "factory"
+        : me.role === "admin" && (saved === "factory" || saved === "legacy")
+          ? saved
+          : "showroom";
+    setWorkspace(unit);
+    changeWorkspace(unit);
     setUser(me);
   }
   useEffect(() => setMenu(false), [location.pathname]);
@@ -152,16 +156,23 @@ function App() {
             <p>{t("Sign in to your workspace")}</p>
             <Form
               fields={[
-                { key: "email", label: "Email", required: true },
+                {
+                  key: "identifier",
+                  label: "Username or email",
+                  required: true,
+                  maxLength: 255,
+                  autoComplete: "username",
+                },
                 {
                   key: "password",
                   label: "Password",
                   type: "password",
                   required: true,
+                  autoComplete: "current-password",
                 },
               ]}
               submit={async (v) => {
-                const me = await login(String(v.email), String(v.password));
+                const me = await login(String(v.identifier), String(v.password));
                 client.clear();
                 signedIn(me);
               }}
@@ -177,72 +188,117 @@ function App() {
         </main>
       </div>
     );
-  const nav = [
-    { to: "/", label: "Overview", icon: LayoutDashboard, allow: true },
-    { to: "/inventory", label: "Inventory", icon: Package, allow: true },
-    { to: "/sales", label: "Sales", icon: ShoppingBag, allow: true },
-    { to: "/purchases", label: "Purchases", icon: Truck, allow: true },
-    { to: "/suppliers", label: "Suppliers", icon: Users, allow: true },
+  const admin = user.role === "admin";
+  const employee = user.role === "employee";
+  const isFactory = workspace === "factory";
+  const isLegacy = workspace === "legacy";
+  const home = employee ? "/production" : "/";
+  const screens = [
+    {
+      to: "/",
+      label: "Overview",
+      icon: LayoutDashboard,
+      allow: !employee,
+      element: isLegacy ? <LegacyHistory /> : <Dashboard />,
+    },
+    {
+      to: "/inventory",
+      label: "Inventory",
+      icon: Package,
+      allow: !employee,
+      element: isFactory ? <FactoryInventory /> : <Inventory />,
+    },
+    {
+      to: "/sales",
+      label: "Sales",
+      icon: ShoppingBag,
+      allow: !employee,
+      element: isFactory ? (
+        <FactorySales />
+      ) : isLegacy ? (
+        <LegacyHistory />
+      ) : (
+        <Trades />
+      ),
+    },
+    {
+      to: "/purchases",
+      label: "Purchases",
+      icon: Truck,
+      allow: !employee,
+      element: <Trades purchase />,
+    },
+    {
+      to: "/suppliers",
+      label: "Suppliers",
+      icon: Users,
+      allow: !employee,
+      element: <Suppliers />,
+    },
     {
       to: "/cash",
       label: "Cash drawer",
       icon: Wallet,
-      allow: user.role !== "employee",
+      allow: !employee,
+      element: <Cash />,
     },
-    { to: "/catalog", label: "Catalog", icon: Layers, allow: true },
+    {
+      to: "/catalog",
+      label: "Catalog",
+      icon: Layers,
+      allow: !employee,
+      element: <Catalog />,
+    },
     {
       to: "/servicing",
       label: "Servicing",
       icon: Wrench,
       allow: true,
+      element: <Servicing />,
     },
     {
       to: "/staff",
       label: "Staff accounts",
       icon: UserPlus,
-      allow: user.role === "admin",
+      allow: admin,
+      element: <Staff />,
     },
-    {
-      to: "/admin-data",
-      label: "Data management",
-      icon: Database,
-      allow: user.role === "admin",
-    },
-  ];
-  nav.push(
     {
       to: "/balances",
       label: "Opening balances",
       icon: Wallet,
-      allow: user.role === "admin" && workspace !== "legacy",
+      allow: admin && !isLegacy,
+      element: <BalanceSetup />,
     },
     {
       to: "/production",
       label: "Production",
       icon: Wrench,
-      allow: workspace === "factory" && user.role !== "cashier",
+      allow: isFactory && (admin || employee),
+      element: <Production />,
     },
     {
       to: "/internal",
       label: "Factory / Showroom account",
       icon: Truck,
-      allow: workspace !== "legacy",
+      allow: !isLegacy && !employee,
+      element: <InternalTrade />,
     },
     {
       to: "/reports",
       label: "Workspace reports",
       icon: LayoutDashboard,
-      allow: user.role === "admin" && workspace !== "legacy",
+      allow: admin && !isLegacy,
+      element: <WorkspaceReports />,
     },
     {
       to: "/legacy",
       label: "Unassigned history",
       icon: Layers,
-      allow: user.role === "admin",
+      allow: admin,
+      element: <LegacyHistory />,
     },
-  );
-  const isFactory = workspace === "factory";
-  const isLegacy = workspace === "legacy";
+  ].filter((screen) => screen.allow);
   return (
     <SessionProvider user={user} workspace={workspace}>
       <div className="workspace">
@@ -261,14 +317,12 @@ function App() {
             </button>
           </div>
           <nav>
-            {nav
-              .filter((n) => n.allow)
-              .map((n) => (
-                <NavLink to={n.to} end={n.to === "/"} key={n.to}>
-                  <n.icon size={19} />
-                  {t(n.label)}
-                </NavLink>
-              ))}
+            {screens.map(({ to, label, icon: Icon }) => (
+              <NavLink to={to} end={to === "/"} key={to}>
+                <Icon size={19} />
+                {t(label)}
+              </NavLink>
+            ))}
           </nav>
           <div className="sidebar-bottom">
             <div className="avatar">{user.username[0]?.toUpperCase()}</div>
@@ -299,33 +353,29 @@ function App() {
             </button>
             <span className="breadcrumb">
               {t(
-                nav.find((n) => n.to === location.pathname)?.label ||
-                  "Overview",
+                screens.find((screen) => screen.to === location.pathname)
+                  ?.label || (employee ? "Production" : "Overview"),
               )}
             </span>
             <div className="topbar-right">
-              <label className="workspace-picker">
-                <span>{t("Workspace")}</span>
-                <select
-                  aria-label={t("Workspace")}
-                  value={workspace}
-                  onChange={(e) => enterWorkspace(e.target.value as Workspace)}
-                >
-                  {(user.role === "admin" ||
-                    user.workspace_access === "both" ||
-                    (user.workspace_access || "showroom") === "showroom") && (
-                    <option value="showroom">{t("Showroom")}</option>
-                  )}
-                  {(user.role === "admin" ||
-                    user.workspace_access === "both" ||
-                    user.workspace_access === "factory") && (
-                    <option value="factory">{t("Factory")}</option>
-                  )}
-                  {user.role === "admin" && (
-                    <option value="legacy">{t("Unassigned history")}</option>
-                  )}
-                </select>
-              </label>
+              {admin && (
+                <label className="workspace-picker">
+                  <span>{t("Workspace")}</span>
+                  <select
+                    aria-label={t("Workspace")}
+                    value={workspace}
+                    onChange={(e) =>
+                      enterWorkspace(e.target.value as Workspace)
+                    }
+                  >
+                    {Object.entries(workspaceLabels).map(([unit, label]) => (
+                      <option key={unit} value={unit}>
+                        {t(label)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <span className="today">
                 {new Intl.DateTimeFormat(lang === "ar" ? "ar-LB" : "en-GB", {
                   day: "numeric",
@@ -341,118 +391,13 @@ function App() {
           </header>
           <main className="content" key={workspace}>
             <div className="workspace-banner">
-              {t(
-                workspace === "factory"
-                  ? "Factory"
-                  : workspace === "showroom"
-                    ? "Showroom"
-                    : "Unassigned history",
-              )}
+              {t(workspaceLabels[workspace])}
             </div>
             <Routes>
-              <Route
-                path="/"
-                element={isLegacy ? <LegacyHistory /> : <Dashboard />}
-              />
-              <Route
-                path="/inventory"
-                element={
-                  workspace === "factory" ? <FactoryInventory /> : <Inventory />
-                }
-              />
-              <Route
-                path="/sales"
-                element={
-                  isFactory ? (
-                    <FactorySales />
-                  ) : isLegacy ? (
-                    <LegacyHistory />
-                  ) : (
-                    <Trades />
-                  )
-                }
-              />
-              <Route path="/purchases" element={<Trades purchase />} />
-              <Route path="/suppliers" element={<Suppliers />} />
-              <Route path="/catalog" element={<Catalog />} />
-              <Route
-                path="/cash"
-                element={
-                  user.role !== "employee" ? (
-                    <Cash />
-                  ) : (
-                    <Navigate to="/" replace />
-                  )
-                }
-              />
-              <Route path="/servicing" element={<Servicing />} />
-              <Route
-                path="/staff"
-                element={
-                  user.role === "admin" ? (
-                    <Staff />
-                  ) : (
-                    <Navigate to="/" replace />
-                  )
-                }
-              />
-              <Route
-                path="/admin-data"
-                element={
-                  user.role === "admin" ? (
-                    <AdminData />
-                  ) : (
-                    <Navigate to="/" replace />
-                  )
-                }
-              />
-              <Route
-                path="/balances"
-                element={
-                  user.role === "admin" && !isLegacy ? (
-                    <BalanceSetup />
-                  ) : (
-                    <Navigate to="/" replace />
-                  )
-                }
-              />
-              <Route
-                path="/production"
-                element={
-                  isFactory && user.role !== "cashier" ? (
-                    <Production />
-                  ) : (
-                    <Navigate to="/" replace />
-                  )
-                }
-              />
-              <Route
-                path="/internal"
-                element={
-                  !isLegacy ? <InternalTrade /> : <Navigate to="/" replace />
-                }
-              />
-              <Route
-                path="/reports"
-                element={
-                  user.role === "admin" && !isLegacy ? (
-                    <WorkspaceReports />
-                  ) : (
-                    <Navigate to="/" replace />
-                  )
-                }
-              />
-              <Route
-                path="/legacy"
-                element={
-                  user.role === "admin" ? (
-                    <LegacyHistory />
-                  ) : (
-                    <Navigate to="/" replace />
-                  )
-                }
-              />
-              <Route path="*" element={<Navigate to="/" replace />} />
+              {screens.map(({ to, element }) => (
+                <Route key={to} path={to} element={element} />
+              ))}
+              <Route path="*" element={<Navigate to={home} replace />} />
             </Routes>
           </main>
           <footer className="app-footer">

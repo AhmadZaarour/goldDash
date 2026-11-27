@@ -505,12 +505,15 @@ function InternalPaymentForm({
   const { t } = useLanguage();
   const unit = useWorkspace();
   const quote = useGoldQuote();
-  const [head, setHead] = useState<Values>({
-    direction: "showroom_to_factory",
-    gold_grams: "0",
-    making_usd: "0",
-    cash_gold_usd: "0",
-  });
+  const [head, setHead] = useLocationValues(
+    {
+      direction: "showroom_to_factory",
+      gold_grams: "0",
+      making_usd: "0",
+      cash_gold_usd: "0",
+    },
+    `${unit}_location_id`,
+  );
   const [close, setClose] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>();
@@ -680,16 +683,22 @@ function InternalPaymentForm({
   );
 }
 
+type InternalRecordType = "internal-invoices" | "internal-payments";
+
 export function InternalTrade() {
   const { t } = useLanguage();
   const unit = useWorkspace();
   const can = useCan();
   const [action, setAction] = useState("");
-  const [reverse, setReverse] = useState<{ row: Row; type: string }>();
+  const [selected, setSelected] = useState<{
+    row: Row;
+    type: InternalRecordType;
+    mode: "view" | "edit" | "reverse";
+  }>();
   const op = useRef(new Operation());
   const done = useDone(() => {
     setAction("");
-    setReverse(undefined);
+    setSelected(undefined);
   });
   const balance = useQuery({
     queryKey: ["list", "internal-balance"],
@@ -698,6 +707,25 @@ export function InternalTrade() {
         "/operations/internal-balance",
       ),
   });
+  function actions(row: Row, type: InternalRecordType) {
+    if (row.reversal_of_id || row.is_reversed) return null;
+    return (
+      <>
+        <button
+          className="ghost"
+          onClick={() => setSelected({ row, type, mode: "edit" })}
+        >
+          {t("Edit")}
+        </button>
+        <button
+          className="ghost danger"
+          onClick={() => setSelected({ row, type, mode: "reverse" })}
+        >
+          {t("Reverse")}
+        </button>
+      </>
+    );
+  }
   return (
     <>
       <Heading
@@ -737,6 +765,11 @@ export function InternalTrade() {
             { key: "gold_24k", label: "Gold debt (24K equivalent g)" },
             { key: "making_usd", label: "Making charge (USD)" },
             { key: "total_value_usd", label: "Agreed value (USD)" },
+            {
+              key: "is_reversed",
+              label: "Status",
+              render: (r) => (r.is_reversed ? t("reversed") : "—"),
+            },
             { key: "reversal_of_id", label: "Reversal of" },
             {
               key: "created_at",
@@ -744,7 +777,12 @@ export function InternalTrade() {
               render: (r) => date(r.created_at),
             },
           ]}
-          view={(row) => setReverse({ row, type: "internal-invoices" })}
+          view={(row) =>
+            setSelected({ row, type: "internal-invoices", mode: "view" })
+          }
+          actions={
+            can.admin ? (row) => actions(row, "internal-invoices") : undefined
+          }
         />
       </section>
       <section className="panel">
@@ -758,9 +796,19 @@ export function InternalTrade() {
             { key: "making_usd", label: "Making charge (USD)" },
             { key: "physical_gold_grams", label: "Physical gold (g)" },
             { key: "cash_gold_usd", label: "Cash for gold (USD)" },
+            {
+              key: "is_reversed",
+              label: "Status",
+              render: (r) => (r.is_reversed ? t("reversed") : "—"),
+            },
             { key: "reversal_of_id", label: "Reversal of" },
           ]}
-          view={(row) => setReverse({ row, type: "internal-payments" })}
+          view={(row) =>
+            setSelected({ row, type: "internal-payments", mode: "view" })
+          }
+          actions={
+            can.admin ? (row) => actions(row, "internal-payments") : undefined
+          }
         />
       </section>
       {action && (
@@ -777,30 +825,55 @@ export function InternalTrade() {
           )}
         </Modal>
       )}
-      {reverse && (
-        <Modal title="Details" close={() => setReverse(undefined)}>
-          <p>{text(reverse.row.note)}</p>
+      {selected?.mode === "view" && (
+        <Modal title="Details" close={() => setSelected(undefined)}>
+          {!!selected.row.note && <p>{text(selected.row.note)}</p>}
           <p>
-            {t("Gold debt (24K equivalent g)")}: {text(reverse.row.gold_24k)}
+            {t("Gold debt (24K equivalent g)")}: {text(selected.row.gold_24k)}
           </p>
           <p>
-            {t("Making charge (USD)")}: ${money(reverse.row.making_usd)}
+            {t("Making charge (USD)")}: ${money(selected.row.making_usd)}
           </p>
-          {can.admin && !reverse.row.reversal_of_id && (
-            <Form
-              fields={[note]}
-              button="Reverse"
-              submit={(v) =>
-                op.current.send(
-                  `/operations/${reverse.type}/${reverse.row.id}/reverse`,
-                  v,
-                  "POST",
-                  true,
-                )
-              }
-              done={done}
-            />
-          )}
+        </Modal>
+      )}
+      {selected?.mode === "edit" && (
+        <Modal title="Edit note" close={() => setSelected(undefined)}>
+          <Form
+            fields={[
+              { ...note, required: selected.type === "internal-payments" },
+            ]}
+            initial={{ note: String(selected.row.note ?? "") }}
+            submit={(v) =>
+              op.current.send(
+                `/operations/${selected.type}/${selected.row.id}`,
+                { note: v.note || null },
+                "PATCH",
+              )
+            }
+            done={done}
+          />
+        </Modal>
+      )}
+      {selected?.mode === "reverse" && (
+        <Modal title="Reverse transaction" close={() => setSelected(undefined)}>
+          <p>
+            {t(
+              "Reversing creates an offsetting entry and restores the related balances.",
+            )}
+          </p>
+          <Form
+            fields={[note]}
+            button="Reverse"
+            submit={(v) =>
+              op.current.send(
+                `/operations/${selected.type}/${selected.row.id}/reverse`,
+                v,
+                "POST",
+                true,
+              )
+            }
+            done={done}
+          />
         </Modal>
       )}
     </>

@@ -14,6 +14,7 @@ from app.schemas.supplier_ledger import (
     LedgerEntryResponse,
     ReversalCreate,
     SettlementCreate,
+    SettlementNoteUpdate,
     SupplierBalanceResponse,
 )
 from app.services import supplier_ledger_service as service
@@ -65,6 +66,17 @@ async def history(
     return await service.history_service(
         supplier_id, db, response, limit, offset, purity_id, kind, from_at, to_at
     )
+
+
+@router.patch("/{supplier_id}/ledger/{entry_id}", response_model=LedgerEntryResponse)
+async def update_settlement_note(
+    supplier_id: int,
+    entry_id: int,
+    data: SettlementNoteUpdate,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    user: AdminUser,
+):
+    return await service.update_settlement_note(db, supplier_id, entry_id, data.note)
 
 
 @router.post(

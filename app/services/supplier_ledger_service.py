@@ -237,6 +237,26 @@ async def history_service(
     return await paginate(db, statement.order_by(SupplierLedgerEntry.id), response, limit, offset)
 
 
+async def update_settlement_note(
+    db: AsyncSession, supplier_id: int, entry_id: int, note: str | None
+) -> SupplierLedgerEntry:
+    entry = await db.scalar(
+        select(SupplierLedgerEntry)
+        .where(
+            SupplierLedgerEntry.id == entry_id,
+            SupplierLedgerEntry.supplier_id == supplier_id,
+        )
+        .with_for_update()
+    )
+    if entry is None:
+        raise HTTPException(404, "Supplier ledger entry not found")
+    if entry.kind != "settlement":
+        raise HTTPException(409, "Only settlement notes can be edited")
+    entry.note = note
+    await db.commit()
+    return entry
+
+
 async def reverse_settlement_service(
     supplier_id: int, entry_id: int, data: ReversalCreate, db: AsyncSession, user_id: int
 ):

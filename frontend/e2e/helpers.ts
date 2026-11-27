@@ -144,13 +144,13 @@ export async function api(page: Page, role = "admin") {
     });
   });
 }
-export async function login(page: Page) {
+export async function login(page: Page, landing = "Overview") {
   await page.goto("/");
-  await page.getByLabel("Email", { exact: true }).fill("owner@example.com");
+  await page.getByLabel("Username or email", { exact: true }).fill("owner@example.com");
   await page.getByLabel("Password", { exact: true }).fill("TestPassword123!");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Overview", exact: true }),
+    page.getByRole("heading", { name: landing, exact: true }),
   ).toBeVisible();
 }
 export async function navigate(page: Page, label: string) {

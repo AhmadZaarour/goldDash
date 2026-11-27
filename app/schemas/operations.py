@@ -2,7 +2,10 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, HttpUrl, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, EmailStr, Field, HttpUrl, model_validator
+
+from app.models.user import UserRole
+from app.schemas.user import Username
 
 Unit = Literal["factory", "showroom"]
 Placement = Literal["factory", "showroom"]
@@ -133,6 +136,22 @@ class ReverseCreate(BaseModel):
     note: str = Field(min_length=1, max_length=500)
 
 
+class ProductionDetailsUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reference: str | None = Field(max_length=100)
+    note: str | None = Field(max_length=500)
+
+
+class InternalInvoiceNoteUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    note: str | None = Field(max_length=500)
+
+
+class InternalPaymentNoteUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    note: str = Field(min_length=1, max_length=500)
+
+
 class LegacyAssignCreate(BaseModel):
     location_id: int | None = Field(default=None, gt=0)
     kind: Literal[
@@ -155,7 +174,20 @@ class LegacyAssignCreate(BaseModel):
 
 
 class StaffWorkspaceUpdate(BaseModel):
-    workspace_access: Literal["factory", "showroom", "both"]
+    model_config = ConfigDict(extra="forbid")
+
+    workspace_access: Literal["factory", "showroom", "both"] | None = None
+    email: EmailStr | None = Field(default=None, max_length=255)
+    username: Username | None = None
+    role: UserRole | None = None
+    is_active: bool | None = None
+
+    @model_validator(mode="after")
+    def require_values(self):
+        values = self.model_dump(exclude_unset=True)
+        if not values or any(value is None for value in values.values()):
+            raise ValueError("Provide staff fields with non-null values")
+        return self
 
 
 class OperationResult(BaseModel):

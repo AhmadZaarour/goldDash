@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { api, login, navigate } from "./helpers";
 
-test("a saved default location prefills new sales and allows overrides", async ({
+test("the Overview location default prefills Showroom and Factory entries", async ({
   page,
 }) => {
   await api(page);
@@ -22,8 +22,6 @@ test("a saved default location prefills new sales and allows overrides", async (
   );
 
   await login(page);
-  await navigate(page, "Catalog");
-  await page.getByRole("button", { name: "Locations", exact: true }).click();
   const settings = page.locator("section").filter({
     has: page.getByRole("heading", { name: "Default location", exact: true }),
   });
@@ -45,6 +43,18 @@ test("a saved default location prefills new sales and allows overrides", async (
   await expect(saleLocation).toHaveValue("1");
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
-  await openSale.click();
-  await expect(saleLocation).toHaveValue("2");
+  await page.getByLabel("Workspace", { exact: true }).selectOption("factory");
+  await expect(settings.getByLabel("Location", { exact: true })).toHaveValue(
+    "2",
+  );
+  await navigate(page, "Inventory");
+  await page
+    .getByRole("button", { name: "Raw gold transfer", exact: true })
+    .click();
+  await expect(
+    dialog.getByLabel("Source location", { exact: true }),
+  ).toHaveValue("2");
+  await expect(
+    dialog.getByLabel("Destination location", { exact: true }),
+  ).toHaveValue("");
 });

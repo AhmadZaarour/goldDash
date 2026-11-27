@@ -20,12 +20,15 @@ export function useLocationChoice(fallback = "") {
   return [choice ?? String(locationId ?? fallback), setChoice] as const;
 }
 
-export function useLocationValues(initial: Values = {}, enabled = true) {
+export function useLocationValues(
+  initial: Values = {},
+  locationKey: string | null = "location_id",
+) {
   const [values, setValues] = useState(initial);
-  const locationId = useDefaultLocation(enabled).data?.location_id;
+  const locationId = useDefaultLocation(locationKey !== null).data?.location_id;
   const effectiveValues =
-    enabled && locationId && values.location_id === undefined
-      ? { ...values, location_id: String(locationId) }
+    locationKey && locationId && values[locationKey] === undefined
+      ? { ...values, [locationKey]: String(locationId) }
       : values;
   return [effectiveValues, setValues] as const;
 }

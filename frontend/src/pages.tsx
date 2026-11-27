@@ -38,6 +38,7 @@ import { useLanguage } from "./i18n";
 import { useCan, useUser, useWorkspace } from "./session";
 import {
   DataList,
+  DeleteRecordButton,
   Modal,
   Form,
   Fields,
@@ -223,6 +224,7 @@ export function Dashboard() {
           )}
         </div>
       </div>
+      {can.admin && <DefaultLocationSettings />}
       <GoldPrice />
       {can.admin && workspace === "showroom" && <MonthlyProfitView />}
       <WorkspaceSummary showPieces={false} />
@@ -469,13 +471,22 @@ export function Catalog() {
             </button>
           ))}
       </div>
-      {tab === "locations" && can.admin && <DefaultLocationSettings />}
       <section className="panel">
         <DataList
           key={tab}
           path={"/" + tab}
           columns={config.columns}
           edit={editable ? setEditing : undefined}
+          actions={
+            can.admin
+              ? (row) => (
+                  <DeleteRecordButton
+                    path={`/${tab}/${row.id}`}
+                    name={text(row.name)}
+                  />
+                )
+              : undefined
+          }
         />
       </section>
       {editing !== undefined && (
@@ -1406,6 +1417,12 @@ function TradeDetail({
           <strong>{date(record.created_at)}</strong>
         </div>
       </div>
+      {purchase && record.voided_at != null && (
+        <div className="notice">
+          <Badge value="voided" />
+          <p>{text(record.void_reason)}</p>
+        </div>
+      )}
       {record.market_ounce_usd != null && (
         <div className="detail-grid">
           {[
@@ -1533,8 +1550,10 @@ export function Trades({ purchase = false }: { purchase?: boolean }) {
     "itemPurchase" | "customerBulkPurchase" | "customerSale" | "bulkSale"
   >();
   const [selected, setSelected] = useState<Row>();
+  const [correction, setCorrection] = useState<{ row: Row; void: boolean }>();
   const [loc, setLoc] = useState("");
   const done = useDone(() => setAction(undefined));
+  const correct = useDone(() => setCorrection(undefined));
   return (
     <>
       <PageHead
@@ -1598,8 +1617,42 @@ export function Trades({ purchase = false }: { purchase?: boolean }) {
               label: "Date",
               render: (r) => date(r.created_at),
             },
+            ...(purchase
+              ? [
+                  {
+                    key: "voided_at",
+                    label: "Status",
+                    render: (row: Row) => (
+                      <Badge
+                        value={row.voided_at != null ? "voided" : "Posted"}
+                      />
+                    ),
+                  },
+                ]
+              : []),
           ]}
           view={setSelected}
+          actions={
+            purchase && can.admin
+              ? (row) =>
+                  row.voided_at == null && (
+                    <>
+                      <button
+                        className="ghost"
+                        onClick={() => setCorrection({ row, void: false })}
+                      >
+                        {t("Edit")}
+                      </button>
+                      <button
+                        className="ghost danger"
+                        onClick={() => setCorrection({ row, void: true })}
+                      >
+                        {t("Void purchase")}
+                      </button>
+                    </>
+                  )
+              : undefined
+          }
         />
       </section>
       {!purchase && can.cashier && (
@@ -1648,6 +1701,60 @@ export function Trades({ purchase = false }: { purchase?: boolean }) {
           record={selected}
           close={() => setSelected(undefined)}
         />
+      )}
+      {correction && (
+        <Modal
+          title={correction.void ? "Void purchase" : "Edit purchase"}
+          close={() => setCorrection(undefined)}
+        >
+          {correction.void && (
+            <p>
+              {t(
+                "Voiding cancels the stock and payment effects and keeps the original purchase in history.",
+              )}
+            </p>
+          )}
+          <Form
+            fields={
+              correction.void
+                ? [
+                    {
+                      key: "reason",
+                      label: "Reason",
+                      required: true,
+                      maxLength: 500,
+                    },
+                  ]
+                : [
+                    {
+                      key: "invoice_number",
+                      label: "Invoice number",
+                      maxLength: 50,
+                    },
+                    { ...note, maxLength: 200 },
+                  ]
+            }
+            initial={correction.void ? {} : clean(correction.row)}
+            submit={(values) =>
+              request(
+                `/purchases/${correction.row.id}${correction.void ? "/void" : ""}`,
+                {
+                  method: correction.void ? "POST" : "PATCH",
+                  body: JSON.stringify(
+                    correction.void
+                      ? { reason: values.reason }
+                      : {
+                          invoice_number: values.invoice_number || null,
+                          notes: values.notes || null,
+                        },
+                  ),
+                },
+              )
+            }
+            done={correct}
+            button={correction.void ? "Void purchase" : "Save"}
+          />
+        </Modal>
       )}
     </>
   );
@@ -1793,25 +1900,35 @@ export function Suppliers() {
                   label: "Date",
                   render: (r) => date(r.created_at),
                 },
-                {
-                  key: "reverse",
-                  label: "Reverse",
-                  render: (r) =>
-                    can.admin && r.kind === "settlement" ? (
-                      <button
-                        className="ghost"
-                        onClick={() => {
-                          setEntry(r);
-                          setAction("Reverse");
-                        }}
-                      >
-                        {t("Reverse")}
-                      </button>
-                    ) : (
-                      "—"
-                    ),
-                },
+                { key: "note", label: "Notes" },
               ]}
+              actions={
+                can.admin
+                  ? (r) =>
+                      r.kind === "settlement" && (
+                        <>
+                          <button
+                            className="ghost"
+                            onClick={() => {
+                              setEntry(r);
+                              setAction("Edit note");
+                            }}
+                          >
+                            {t("Edit note")}
+                          </button>
+                          <button
+                            className="ghost"
+                            onClick={() => {
+                              setEntry(r);
+                              setAction("Reverse");
+                            }}
+                          >
+                            {t("Reverse")}
+                          </button>
+                        </>
+                      )
+                  : undefined
+              }
             />
           </section>
         </>
@@ -1822,6 +1939,16 @@ export function Suppliers() {
             columns={catalogs.suppliers.columns}
             view={setSelected}
             edit={can.admin ? setEditing : undefined}
+            actions={
+              can.admin
+                ? (row) => (
+                    <DeleteRecordButton
+                      path={`/suppliers/${row.id}`}
+                      name={text(row.name)}
+                    />
+                  )
+                : undefined
+            }
           />
         </section>
       )}
@@ -1850,6 +1977,19 @@ export function Suppliers() {
             <SupplierSettlement
               supplierId={Number(selected!.id)}
               balance={balance.data}
+              done={done}
+            />
+          ) : action === "Edit note" && selected && entry ? (
+            <Form
+              fields={[{ ...note, key: "note", maxLength: 500 }]}
+              initial={{ note: String(entry.note ?? "") }}
+              submit={(values) =>
+                op.current.send(
+                  `/suppliers/${selected.id}/ledger/${entry.id}`,
+                  { note: values.note || null },
+                  "PATCH",
+                )
+              }
               done={done}
             />
           ) : (
@@ -1887,8 +2027,11 @@ export function Cash() {
   const [loc, setLoc] = useLocationChoice();
   const [tab, setTab] = useState("Entries");
   const [action, setAction] = useState("");
+  const [correction, setCorrection] = useState<Row>();
   const op = useRef(new Operation());
   const done = useDone(() => setAction(""));
+  const corrected = useDone(() => setCorrection(undefined));
+  const reconciliation = tab === "Reconciliation";
   const summary = useQuery({
     queryKey: ["list", "cash-summary", loc],
     queryFn: () => get<Row>("/cash/summary?location_id=" + loc),
@@ -2008,6 +2151,44 @@ export function Cash() {
               }
               params={{ location_id: loc }}
               searchable={false}
+              actions={
+                can.admin
+                  ? (row) => {
+                      if (
+                        reconciliation
+                          ? row.voided_at
+                          : row.kind !== "expense" && row.kind !== "withdrawal"
+                      )
+                        return null;
+                      return (
+                        <>
+                          <button
+                            className="ghost"
+                            onClick={() => setCorrection(row)}
+                          >
+                            {t("Edit")}
+                          </button>
+                          <DeleteRecordButton
+                            path={`/cash/${reconciliation ? "reconciliations" : "outflows"}/${row.id}`}
+                            name={
+                              reconciliation
+                                ? date(row.from_at) + " – " + date(row.to_at)
+                                : text(row.description)
+                            }
+                            label={
+                              reconciliation ? "Void reconciliation" : "Delete"
+                            }
+                            confirmation={
+                              reconciliation
+                                ? "Void this reconciliation and reopen its period for corrections?"
+                                : undefined
+                            }
+                          />
+                        </>
+                      );
+                    }
+                  : undefined
+              }
               columns={
                 tab === "Entries"
                   ? [
@@ -2053,6 +2234,11 @@ export function Cash() {
                       { key: "expected_usd", label: "Expected cash" },
                       { key: "counted_usd", label: "Counted cash" },
                       { key: "variance_usd", label: "Variance" },
+                      {
+                        key: "status",
+                        label: "Status",
+                        render: (row) => t(row.voided_at ? "Voided" : "Closed"),
+                      },
                     ]
               }
             />
@@ -2065,7 +2251,7 @@ export function Cash() {
         <Modal title={action} close={() => setAction("")}>
           <Form
             fields={fields}
-            initial={{ location_id: loc }}
+            initial={loc ? { location_id: loc } : {}}
             submit={(v) => {
               if (action === "Reconciliation")
                 return op.current.send(
@@ -2102,16 +2288,96 @@ export function Cash() {
           </Form>
         </Modal>
       )}
+      {correction && (
+        <Modal
+          title={reconciliation ? "Edit reconciliation" : "Edit cash outflow"}
+          close={() => setCorrection(undefined)}
+        >
+          <Form
+            fields={
+              reconciliation
+                ? [
+                    amount("opening_usd", "Opening cash"),
+                    amount("counted_usd", "Counted cash"),
+                  ]
+                : [
+                    amount("amount_usd", "Amount (USD)"),
+                    {
+                      key: "description",
+                      label: "Description",
+                      type: "textarea",
+                      required: true,
+                      maxLength: 500,
+                    },
+                    { key: "category", label: "Category", maxLength: 50 },
+                  ]
+            }
+            initial={{
+              opening_usd: String(correction.opening_usd ?? ""),
+              counted_usd: String(correction.counted_usd ?? ""),
+              amount_usd: String(correction.amount_usd ?? "").replace(/^-/, ""),
+              description: String(correction.description ?? ""),
+              category: String(correction.category ?? ""),
+            }}
+            submit={(values) =>
+              op.current.send(
+                `/cash/${reconciliation ? "reconciliations" : "outflows"}/${correction.id}`,
+                reconciliation
+                  ? {
+                      opening_usd: values.opening_usd,
+                      counted_usd: values.counted_usd,
+                    }
+                  : {
+                      amount_usd: values.amount_usd,
+                      description: values.description,
+                      category: values.category || null,
+                    },
+                "PATCH",
+              )
+            }
+            done={corrected}
+          />
+        </Modal>
+      )}
     </>
   );
 }
 
+const staffIdentity: Field[] = [
+  { key: "email", label: "Email", required: true, maxLength: 255 },
+  { key: "username", label: "Username", required: true, maxLength: 50 },
+];
+const staffRole: Field = {
+  key: "role",
+  label: "Role",
+  type: "select",
+  options: ["cashier", "employee"],
+  required: true,
+};
+
 export function Staff() {
   const { t } = useLanguage();
+  const user = useUser();
   const op = useRef(new Operation());
   const [saved, setSaved] = useState(false);
   const [editing, setEditing] = useState<Row>();
+  const workspaceHelp = t("Cashiers use Showroom. Employees use Factory.");
+  const initialEdit = editing && clean(editing);
   const done = useDone(() => setEditing(undefined));
+  const created = useDone(() => {
+    setSaved(true);
+    setTimeout(() => setSaved(false), 5000);
+  });
+  const editFields: Field[] =
+    editing && editing.id !== user.id
+      ? [
+          ...staffIdentity,
+          editing.role === "admin"
+            ? { ...staffRole, options: ["admin", "cashier", "employee"] }
+            : staffRole,
+          { key: "is_active", label: "Active", type: "checkbox" },
+        ]
+      : staffIdentity;
   return (
     <>
       <PageHead
@@ -2124,32 +2390,53 @@ export function Staff() {
           searchable={false}
           columns={[
             { key: "username", label: "Username" },
+            { key: "email", label: "Email" },
             { key: "role", label: "Role" },
-            { key: "workspace_access", label: "Workspace access" },
+            {
+              key: "workspace_access",
+              label: "Workspace access",
+              render: (row) => t(text(row.workspace_access)),
+            },
+            {
+              key: "is_active",
+              label: "Status",
+              render: (row) => <Badge value={row.is_active} />,
+            },
           ]}
           edit={setEditing}
+          actions={(row) =>
+            row.id !== user.id && (
+              <DeleteRecordButton
+                path={`/operations/staff/${row.id}`}
+                name={text(row.username)}
+              />
+            )
+          }
         />
       </section>
-      {editing && (
-        <Modal title="Workspace access" close={() => setEditing(undefined)}>
+      {editing && initialEdit && (
+        <Modal title="Edit staff account" close={() => setEditing(undefined)}>
           <Form
-            fields={[
-              {
-                key: "workspace_access",
-                label: "Workspace access",
-                type: "select",
-                options: ["showroom", "factory", "both"],
-                required: true,
-              },
-            ]}
-            initial={{
-              workspace_access: String(editing.workspace_access || "showroom"),
+            fields={editFields}
+            initial={initialEdit}
+            submit={async (values) => {
+              const changed = editFields.filter(
+                ({ key }) => values[key] !== initialEdit[key],
+              );
+              if (changed.length) {
+                await op.current.send(
+                  `/operations/staff/${editing.id}`,
+                  toPayload(changed, values),
+                  "PATCH",
+                );
+              }
             }}
-            submit={(v) =>
-              op.current.send(`/operations/staff/${editing.id}`, v, "PATCH")
-            }
             done={done}
-          />
+          >
+            {editing.id !== user.id && (
+              <p className="muted small">{workspaceHelp}</p>
+            )}
+          </Form>
         </Modal>
       )}
       <section className="panel narrow">
@@ -2161,20 +2448,7 @@ export function Staff() {
         <Form
           key={String(saved)}
           fields={[
-            {
-              key: "workspace_access",
-              label: "Workspace access",
-              type: "select",
-              options: ["showroom", "factory", "both"],
-              required: true,
-            },
-            { key: "email", label: "Email", required: true, maxLength: 255 },
-            {
-              key: "username",
-              label: "Username",
-              required: true,
-              maxLength: 50,
-            },
+            ...staffIdentity,
             {
               key: "password",
               label: "Password",
@@ -2182,22 +2456,15 @@ export function Staff() {
               required: true,
               maxLength: 128,
             },
-            {
-              key: "role",
-              label: "Role",
-              type: "select",
-              options: ["cashier", "employee"],
-              required: true,
-            },
+            staffRole,
           ]}
-          initial={{ role: "cashier", workspace_access: "showroom" }}
+          initial={{ role: "cashier" }}
           submit={(v) => op.current.send("/auth/register", v)}
-          done={() => {
-            setSaved(true);
-            setTimeout(() => setSaved(false), 5000);
-          }}
+          done={created}
           button="Create"
-        />
+        >
+          <p className="muted small">{workspaceHelp}</p>
+        </Form>
       </section>
     </>
   );

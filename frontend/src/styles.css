@@ -143,7 +143,6 @@ p {
   display: flex;
   flex-direction: column;
   gap: 5px;
-  overflow-y: auto;
 }
 .sidebar nav a {
   display: flex;
@@ -554,21 +553,6 @@ textarea {
 }
 .form-grid .wide {
   grid-column: 1/-1;
-}
-.data-null-toggle {
-  align-items: center;
-  flex-direction: row;
-  margin-top: 6px;
-}
-.data-tools {
-  align-items: end;
-  flex-wrap: wrap;
-}
-.data-record-lookup {
-  display: flex;
-  align-items: end;
-  flex-wrap: wrap;
-  gap: 8px;
 }
 .required {
   color: #a58750;

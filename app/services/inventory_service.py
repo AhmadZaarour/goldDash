@@ -1,4 +1,3 @@
-import secrets
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -18,6 +17,7 @@ from app.schemas.inventory import (
     InventoryStockCreate,
     InventoryStockUpdate,
 )
+from app.services.barcodes import BARCODE_ATTEMPTS, generate_barcode
 
 
 async def create_item(
@@ -27,8 +27,7 @@ async def create_item(
 
     # PostgreSQL arbitrates uniqueness so concurrent requests cannot share a code.
     # A barcode collision retries only this insert, preserving the purchase transaction.
-    for _ in range(5):
-        barcode = f"GI{secrets.token_hex(8).upper()}"
+    for _ in range(BARCODE_ATTEMPTS):
         statement = (
             insert(InventoryItem)
             .values(
@@ -36,7 +35,7 @@ async def create_item(
                 purchase_item_id=item_data.purchase_item_id,
                 production_piece_id=item_data.production_piece_id,
                 location_id=item_data.location_id,
-                barcode=barcode,
+                barcode=generate_barcode("GI"),
                 image_url=str(item_data.image_url) if item_data.image_url is not None else None,
                 status=item_data.status,
             )

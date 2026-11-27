@@ -1,4 +1,5 @@
 import asyncio
+import re
 from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
@@ -31,12 +32,14 @@ async def location(client):
     return response.json()["id"]
 
 
-async def test_service_intake_generated_barcodes_and_retry(client):
+async def test_service_intake_generated_barcodes_and_retry(
+    client, test_session_factory, monkeypatch
+):
     headers = {"Idempotency-Key": "intake"}
     response = await client.post("/api/v1/servicing", json={}, headers=headers)
     assert response.status_code == 201, response.text
     record = response.json()
-    assert record["barcode"].startswith("SV")
+    assert re.fullmatch(r"SV[0-9A-HJKMNP-TV-Z]{8}", record["barcode"])
     assert record["status"] == "in_progress"
     assert record["notes"] is None and record["customer_id"] is None
     assert record["sale"] is None
@@ -44,9 +47,26 @@ async def test_service_intake_generated_barcodes_and_retry(client):
     assert (
         await client.post("/api/v1/servicing", json={"notes": "different"}, headers=headers)
     ).status_code == 409
-    another = await create(client)
-    assert another["barcode"] != record["barcode"]
+    next_barcode = "SVBBBBBBBB" if record["barcode"] != "SVBBBBBBBB" else "SVCCCCCCCC"
+    values = iter([record["barcode"], next_barcode])
+    monkeypatch.setattr(
+        "app.services.inventoryServicing_service.generate_barcode", lambda _: next(values)
+    )
+    collision_headers = {"Idempotency-Key": "intake-collision"}
+    another = await client.post("/api/v1/servicing", json={}, headers=collision_headers)
+    assert another.status_code == 201, another.text
+    assert another.json()["barcode"] == next_barcode
+    assert (await client.post("/api/v1/servicing", json={}, headers=collision_headers)).json() == (
+        another.json()
+    )
     assert (await client.get(f"/api/v1/servicing/{record['barcode']}")).json() == record
+    legacy_barcode = "SV" + "A" * 20
+    async with test_session_factory() as db:
+        db.add(InventoryService(barcode=legacy_barcode, status="in_progress"))
+        await db.commit()
+    legacy = await client.get(f"/api/v1/servicing/{legacy_barcode}")
+    assert legacy.status_code == 200
+    assert legacy.json()["barcode"] == legacy_barcode
     assert (await client.post("/api/v1/servicing", json={})).status_code == 422
 
 
@@ -110,9 +130,11 @@ async def test_service_checkout_cash_profit_and_double_payment_guard(client, tes
 
 async def test_service_checkout_scope_roles_and_inactive_location(client, test_session_factory):
     loc = await location(client)
-    employee = await headers_for(test_session_factory, "employee")
+    factory = {"X-Business-Unit": "factory"}
+    employee = {**await headers_for(test_session_factory, "employee"), **factory}
     cashier = await headers_for(test_session_factory, "cashier")
-    service = await create(client, status="finished", headers=employee)
+    factory_service = await create(client, status="finished", headers=employee)
+    service = await create(client, status="finished")
     data = {"barcode": service["barcode"], "location_id": loc, "cost": "0"}
     key = {"Idempotency-Key": uuid4().hex}
     assert (await client.get("/api/v1/servicing", headers=cashier)).status_code == 200
@@ -125,18 +147,29 @@ async def test_service_checkout_scope_roles_and_inactive_location(client, test_s
         )
     ).status_code == 403
     assert (
-        await client.post("/api/v1/servicing/sales", json=data, headers={**employee, **key})
+        await client.post(
+            "/api/v1/servicing/sales",
+            json={**data, "barcode": factory_service["barcode"]},
+            headers={**employee, **key},
+        )
     ).status_code == 403
     assert (
         await client.get(
             "/api/v1/servicing",
             params={"barcode": service["barcode"]},
-            headers={"X-Business-Unit": "factory"},
+            headers=factory,
         )
     ).json() == []
     assert (
         await client.post(
-            "/api/v1/servicing/sales", json=data, headers={**key, "X-Business-Unit": "factory"}
+            "/api/v1/servicing/sales", json=data, headers={**key, **factory}
+        )
+    ).status_code == 404
+    assert (
+        await client.post(
+            "/api/v1/servicing/sales",
+            json={**data, "barcode": factory_service["barcode"]},
+            headers={**cashier, **key},
         )
     ).status_code == 404
     assert (

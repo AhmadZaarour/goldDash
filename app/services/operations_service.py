@@ -931,6 +931,51 @@ async def reverse_production(db, batch_id, note, user_id):
     return {"id": doc.id, "kind": "production_reversal", "message": "Production batch reversed"}
 
 
+async def update_production_details(db, batch_id, data):
+    batch = await db.scalar(
+        select(ProductionBatch).where(ProductionBatch.id == batch_id).with_for_update()
+    )
+    if batch is None:
+        raise HTTPException(404, "Production batch not found")
+    if batch.status not in {"active", "in_progress"}:
+        raise HTTPException(409, "Reversed production cannot be edited")
+    batch.reference = data.reference
+    batch.note = data.note
+    await db.commit()
+    return {"id": batch.id, "kind": "production", "message": "Production details updated"}
+
+
+async def update_internal_invoice_note(db, invoice_id, data):
+    invoice = await db.scalar(
+        select(InternalInvoice).where(InternalInvoice.id == invoice_id).with_for_update()
+    )
+    if invoice is None:
+        raise HTTPException(404, "Internal invoice not found")
+    if invoice.reversal_of_id is not None or await db.scalar(
+        select(InternalInvoice.id).where(InternalInvoice.reversal_of_id == invoice.id)
+    ):
+        raise HTTPException(409, "Reversed internal invoices cannot be edited")
+    invoice.note = data.note
+    await db.commit()
+    return {"id": invoice.id, "kind": "internal_invoice", "message": "Invoice note updated"}
+
+
+async def update_internal_payment_note(db, payment_id, data):
+    payment = await db.scalar(
+        select(InternalPayment).where(InternalPayment.id == payment_id).with_for_update()
+    )
+    if payment is None:
+        raise HTTPException(404, "Internal payment not found")
+    if payment.reversal_of_id is not None or await db.scalar(
+        select(InternalPayment.id).where(InternalPayment.reversal_of_id == payment.id)
+    ):
+        raise HTTPException(409, "Reversed internal payments cannot be edited")
+    document = await db.get(OperationDocument, payment.operation_id)
+    document.note = data.note
+    await db.commit()
+    return {"id": payment.id, "kind": "internal_payment", "message": "Payment note updated"}
+
+
 async def reverse_internal_invoice(db, invoice_id, note, user_id):
     original = await db.get(InternalInvoice, invoice_id)
     if original is not None and original.tracking_mode == "weight":

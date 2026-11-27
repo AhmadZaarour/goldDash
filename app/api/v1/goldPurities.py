@@ -1,20 +1,21 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.authorization import AdminUser
 from app.core.database import get_db
 from app.core.dependencies import require_role
-
+from app.models.goldPurities import GoldPurity
 from app.models.user import UserRole
 from app.schemas.goldPurities import GoldPurityCreate, GoldPurityResponse, GoldPurityUpdate
 from app.services.goldPurities_service import (
     create_gold_purity,
     get_gold_purity,
-    update_gold_purity,
     list_records_service,
+    update_gold_purity,
 )
+from app.services.record_removal import remove_unused_record
 
 router = APIRouter(
     prefix="/goldpurities",
@@ -120,3 +121,13 @@ async def list_records(
         offset,
         q,
     )
+
+
+@router.delete("/{record_id}", status_code=204)
+async def delete_record(
+    record_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    user: AdminUser,
+) -> Response:
+    await remove_unused_record(db, GoldPurity, record_id, "Gold purity")
+    return Response(status_code=204)

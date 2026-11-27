@@ -4,12 +4,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.authorization import AdminUser
 from app.core.database import get_db
 from app.core.dependencies import require_role
 from app.core.pagination import paginate
 from app.models.suppliers import Supplier
 from app.models.user import UserRole
 from app.schemas.suppliers import SupplierCreate, SupplierResponse, SupplierUpdate
+from app.services.record_removal import remove_unused_record
 from app.services.suppliers_service import (
     create_supplier,
     get_supplier,
@@ -122,3 +124,13 @@ async def update_supplier_endpoint(
         ) from exc
 
     return new_supplier
+
+
+@router.delete("/{record_id}", status_code=204)
+async def delete_record(
+    record_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    user: AdminUser,
+) -> Response:
+    await remove_unused_record(db, Supplier, record_id, "Supplier")
+    return Response(status_code=204)

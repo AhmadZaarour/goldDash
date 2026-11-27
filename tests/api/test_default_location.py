@@ -21,7 +21,12 @@ async def test_default_location_is_shared_and_requires_an_active_location(
 
     response = await client.put(path, json=selected)
     assert response.status_code == 200, response.text
-    factory = {**staff, "X-Business-Unit": "factory"}
+    assert (await client.get(path, headers=staff)).json() == selected
+    assert (
+        await client.get(path, headers={**staff, "X-Business-Unit": "factory"})
+    ).status_code == 403
+    employee = await headers_for(test_session_factory, "employee")
+    factory = {**employee, "X-Business-Unit": "factory"}
     assert (await client.get(path, headers=factory)).json() == selected
 
     assert (await client.put(path, json={"location_id": None})).status_code == 200

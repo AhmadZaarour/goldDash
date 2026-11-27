@@ -290,7 +290,7 @@ test("unknown service scanning reports an error and intake has no manual barcode
 }) => {
   await api(page, "employee");
   await camera(page, "REPAIR/001");
-  await login(page);
+  await login(page, "Production");
   await navigate(page, "Servicing");
   await page.getByRole("button", { name: "Scan barcode", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("Service not found");

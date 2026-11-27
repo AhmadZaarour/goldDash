@@ -15,10 +15,13 @@ from app.schemas.operations import (
     CashTransferCreate,
     GoldTransferCreate,
     InternalInvoiceCreate,
+    InternalInvoiceNoteUpdate,
     InternalPaymentCreate,
+    InternalPaymentNoteUpdate,
     LegacyAssignCreate,
     OperationResult,
     ProductionCreate,
+    ProductionDetailsUpdate,
     ReverseCreate,
     StaffWorkspaceUpdate,
     StockValuationCreate,
@@ -158,6 +161,14 @@ async def production_detail(batch_id: int, db: Database, user: CurrentUser):
     return await queries.production_detail(batch_id, db)
 
 
+@router.patch("/production/{batch_id}", response_model=OperationResult)
+async def update_production_details(
+    batch_id: int, data: ProductionDetailsUpdate, db: Database, user: AdminUser
+):
+    require_workspace("factory")
+    return await service.update_production_details(db, batch_id, data)
+
+
 @router.post("/internal-invoices", response_model=OperationResult, status_code=201, deprecated=True)
 async def internal_invoice(
     data: InternalInvoiceCreate, db: Database, user: AdminUser, key: IdempotencyKey
@@ -193,6 +204,13 @@ async def internal_balance(db: Database, user: CurrentUser):
     }
 
 
+@router.patch("/internal-invoices/{invoice_id}", response_model=OperationResult)
+async def update_internal_invoice_note(
+    invoice_id: int, data: InternalInvoiceNoteUpdate, db: Database, user: AdminUser
+):
+    return await service.update_internal_invoice_note(db, invoice_id, data)
+
+
 @router.post("/internal-payments", response_model=OperationResult, status_code=201)
 async def internal_payment(
     data: InternalPaymentCreate, db: Database, user: AdminUser, key: IdempotencyKey
@@ -217,6 +235,13 @@ async def internal_payments(
     offset: int = Query(0, ge=0),
 ):
     return await queries.internal_payments(db, response, limit, offset)
+
+
+@router.patch("/internal-payments/{payment_id}", response_model=OperationResult)
+async def update_internal_payment_note(
+    payment_id: int, data: InternalPaymentNoteUpdate, db: Database, user: AdminUser
+):
+    return await service.update_internal_payment_note(db, payment_id, data)
 
 
 @router.post(
@@ -350,7 +375,13 @@ async def internal_resources(
 async def staff_workspace(
     user_id: int, data: "StaffWorkspaceUpdate", db: Database, user: AdminUser
 ):
-    return await queries.staff_workspace(user_id, data, db)
+    return await queries.staff_workspace(user_id, data, db, user.id)
+
+
+@router.delete("/staff/{user_id}", status_code=204)
+async def delete_staff(user_id: int, db: Database, user: AdminUser) -> Response:
+    await queries.delete_staff(user_id, db, user.id)
+    return Response(status_code=204)
 
 
 @router.get("/staff")

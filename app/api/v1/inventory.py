@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.authorization import EmployeeUser
+from app.core.authorization import AdminUser
 from app.core.database import get_db
 from app.core.pagination import paginate
 from app.models import InventoryMovement, InventoryStock, Product, PurchaseItem
@@ -197,7 +197,7 @@ async def update_item_image(
     item_id: int,
     data: InventoryItemImageUpdate,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: EmployeeUser,
+    current_user: AdminUser,
 ) -> InventoryItemResponse:
     item = await db.get(InventoryItem, item_id)
     if item is None:

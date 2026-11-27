@@ -403,6 +403,12 @@ async def test_gold_payment_uses_repayment_factor_and_saved_cost_on_reversal(
         await client.get("/api/v1/operations/internal-balance", headers=header("showroom"))
     ).json()
     assert Decimal(balance["gold_24k"]) == Decimal("0.069")
+    payment_url = f"/api/v1/operations/internal-payments/{payment.json()['id']}"
+    note = {"note": "18K repayment, confirmed at counter"}
+    edit = await client.patch(payment_url, json=note, headers=header("factory"))
+    assert edit.status_code == 200, edit.text
+    entries = await client.get("/api/v1/operations/internal-payments", headers=header("showroom"))
+    assert entries.json()[0]["note"] == note["note"]
     async with test_session_factory() as db:
         purity = await db.get(GoldPurity, s["purity"])
         purity.repayment_factor = Decimal("0.5")
@@ -413,6 +419,11 @@ async def test_gold_payment_uses_repayment_factor_and_saved_cost_on_reversal(
     assert (
         await reverse(client, "factory", f"internal-payments/{payment.json()['id']}")
     ).status_code == 409
+    assert (
+        await client.patch(payment_url, json=note, headers=header("factory"))
+    ).status_code == 409
+    entries = await client.get("/api/v1/operations/internal-payments", headers=header("showroom"))
+    assert entries.json()[1]["is_reversed"] is True
     restored = await overview(client, s, "showroom")
     assert Decimal(restored["bulk"][0]["total_weight"]) == 10
     assert Decimal(restored["bulk"][0]["cost_usd"]) == 600
@@ -581,21 +592,25 @@ async def test_legacy_assignment_keeps_history_separate_and_is_audited(
     ).status_code == 403
 
 
-async def test_staff_membership_edit_takes_effect_without_token_renewal(
-    client, test_session_factory
-):
+async def test_staff_role_edit_takes_effect_without_token_renewal(client, test_session_factory):
     from app.models import User
 
     staff_headers = await headers_for(test_session_factory, "cashier", workspace_access="showroom")
     async with test_session_factory() as db:
         staff = await db.scalar(select(User).where(User.role == "cashier"))
         staff_id = staff.id
+    assert (
+        await client.get(
+            "/api/v1/operations/overview", headers={**staff_headers, **header("showroom")}
+        )
+    ).status_code == 200
     response = await client.patch(
         f"/api/v1/operations/staff/{staff_id}",
-        json={"workspace_access": "factory"},
+        json={"role": "employee"},
         headers=header("showroom"),
     )
     assert response.status_code == 200, response.text
+    assert response.json()["workspace_access"] == "factory"
     assert (
         await client.get(
             "/api/v1/operations/overview", headers={**staff_headers, **header("showroom")}
@@ -603,8 +618,13 @@ async def test_staff_membership_edit_takes_effect_without_token_renewal(
     ).status_code == 403
     assert (
         await client.get(
-            "/api/v1/operations/overview", headers={**staff_headers, **header("factory")}
+            "/api/v1/operations/production", headers={**staff_headers, **header("factory")}
         )
     ).status_code == 200
+    assert (
+        await client.get(
+            "/api/v1/operations/overview", headers={**staff_headers, **header("factory")}
+        )
+    ).status_code == 403
     users = (await client.get("/api/v1/operations/staff", headers=header("showroom"))).json()
     assert all("password" not in str(row) for row in users)

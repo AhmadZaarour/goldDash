@@ -54,9 +54,9 @@ async def test_defaults_zero_and_settings_are_workspace_owned_admin_only(
     assert Decimal(factory["buy_adjustment_usd"]) == 0
     await save(client, "-20", "25", "factory")
     assert Decimal((await client.get(URL)).json()["buy_adjustment_usd"]) == -40
-    for role in ["cashier", "employee"]:
-        headers = await headers_for(test_session_factory, role)
-        assert (await client.get(URL, headers=headers)).status_code == 200
+    for role, unit, read_status in [("cashier", "showroom", 200), ("employee", "factory", 403)]:
+        headers = {**await headers_for(test_session_factory, role), "X-Business-Unit": unit}
+        assert (await client.get(URL, headers=headers)).status_code == read_status
         assert (
             await client.put(
                 URL,

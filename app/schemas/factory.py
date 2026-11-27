@@ -1,9 +1,16 @@
 from decimal import Decimal
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    model_serializer,
+)
 
-from app.schemas.operations import GoldLine, ProducedPiece
+from app.schemas.operations import GoldLine, ProducedPiece, ReverseCreate
 
 Weight = Annotated[Decimal, Field(gt=0, decimal_places=3, max_digits=12)]
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
@@ -24,7 +31,19 @@ class ProductionStart(BaseModel):
     direct_cost_usd: Decimal = Field(default=Decimal(0), ge=0, decimal_places=2, max_digits=14)
 
 
-class ProductionStep(BaseModel):
+class ProductionStepExpectation(BaseModel):
+    expected_step_created_at: AwareDatetime | None = None
+
+    @model_serializer(mode="wrap")
+    def serialize_expectation(self, serialize):
+        values = serialize(self)
+        # Preserve the fingerprints on receipts from before the timestamp check.
+        if self.expected_step_created_at is None:
+            values.pop("expected_step_created_at", None)
+        return values
+
+
+class ProductionStep(ProductionStepExpectation):
     model_config = ConfigDict(extra="forbid")
     name: Name
     outputs: list[WeightByPurity] = Field(min_length=1, max_length=100)
@@ -34,8 +53,20 @@ class ProductionStep(BaseModel):
     expected_step: int = Field(ge=0)
 
 
-class ProductionFinish(BaseModel):
+class ProductionFinish(ProductionStepExpectation):
     expected_step: int = Field(ge=1)
+
+
+class ProductionStepDetailsUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: Name
+    note: str | None = Field(max_length=500)
+    expected_created_at: AwareDatetime
+
+
+class ProductionStepReverse(ReverseCreate):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    expected_created_at: AwareDatetime
 
 
 class WeightTradeRow(WeightByPurity):

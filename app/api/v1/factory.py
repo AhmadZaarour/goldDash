@@ -18,6 +18,8 @@ from app.schemas.factory import (
     ProductionFinish,
     ProductionStart,
     ProductionStep,
+    ProductionStepDetailsUpdate,
+    ProductionStepReverse,
     ShowroomReceive,
     WeightSupplyCreate,
 )
@@ -70,6 +72,37 @@ async def finish(
         key,
         data,
         lambda: service.finish_production(db, batch_id, data, user.id),
+    )
+
+
+@router.patch("/weight-production/{batch_id}/steps/{position}")
+async def update_step(
+    batch_id: int, position: int, data: ProductionStepDetailsUpdate, db: Database, user: AdminUser
+):
+    require_workspace("factory")
+    try:
+        return await service.update_step_details(db, batch_id, position, data)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@router.post("/weight-production/{batch_id}/steps/{position}/reverse", status_code=201)
+async def reverse_step(
+    batch_id: int,
+    position: int,
+    data: ProductionStepReverse,
+    db: Database,
+    user: AdminUser,
+    key: IdempotencyKey,
+):
+    require_workspace("factory")
+    return await execute(
+        db,
+        user.id,
+        f"p:sv:{batch_id}:{position}",
+        key,
+        data,
+        lambda: service.reverse_step(db, batch_id, position, data, user.id),
     )
 
 
@@ -127,7 +160,7 @@ async def pending(db: Database, user: CurrentUser):
 
 
 @router.post("/weight-internal-invoices/{invoice_id}/photos", status_code=201)
-async def receipt_photo(invoice_id: int, request: Request, db: Database, user: EmployeeUser):
+async def receipt_photo(invoice_id: int, request: Request, db: Database, user: AdminUser):
     require_workspace("showroom")
     invoice = await db.get(InternalInvoice, invoice_id)
     if invoice is None or invoice.tracking_mode != "weight" or invoice.reversal_of_id is not None:
@@ -150,7 +183,7 @@ async def receipt_photo(invoice_id: int, request: Request, db: Database, user: E
 
 @router.post("/weight-internal-invoices/{invoice_id}/receive", status_code=201)
 async def receive(
-    invoice_id: int, data: ShowroomReceive, db: Database, user: EmployeeUser, key: IdempotencyKey
+    invoice_id: int, data: ShowroomReceive, db: Database, user: AdminUser, key: IdempotencyKey
 ):
     require_workspace("showroom")
     return await execute(

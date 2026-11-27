@@ -40,7 +40,15 @@ test("cashier navigation does not expose admin or inventory write controls", asy
   page,
 }) => {
   await api(page, "cashier");
+  await page.addInitScript(() =>
+    sessionStorage.setItem("gold-workspace", "factory"),
+  );
+  const overview = page.waitForRequest((req) =>
+    req.url().endsWith("/api/v1/operations/overview"),
+  );
   await login(page);
+  expect((await overview).headers()["x-business-unit"]).toBe("showroom");
+  await expect(page.getByLabel("Workspace", { exact: true })).toHaveCount(0);
   await expect(
     page.getByRole("heading", { name: "Monthly profit", exact: true }),
   ).toHaveCount(0);
@@ -62,6 +70,35 @@ test("cashier navigation does not expose admin or inventory write controls", asy
   await page.goto("/staff");
   await expect(
     page.getByRole("heading", { name: "Overview", exact: true }),
+  ).toBeVisible();
+});
+
+test("employees enter Factory and can open only Production and Servicing", async ({
+  page,
+}) => {
+  await api(page, "employee");
+  await page.addInitScript(() =>
+    sessionStorage.setItem("gold-workspace", "showroom"),
+  );
+  const production = page.waitForRequest((req) =>
+    req.url().includes("/api/v1/operations/production?"),
+  );
+  await login(page, "Production");
+  expect((await production).headers()["x-business-unit"]).toBe("factory");
+  await expect(page.getByLabel("Workspace", { exact: true })).toHaveCount(0);
+  const menu = page.getByRole("button", { name: "Menu", exact: true });
+  if (await menu.isVisible()) await menu.click();
+  await expect(page.locator("nav").getByRole("link")).toHaveText([
+    "Servicing",
+    "Production",
+  ]);
+
+  await page.goto("/inventory");
+  await expect(page).toHaveURL(/\/production$/);
+  await navigate(page, "Servicing");
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { name: "Servicing", exact: true }),
   ).toBeVisible();
 });
 

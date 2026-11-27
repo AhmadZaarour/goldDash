@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -214,6 +214,7 @@ async def create_stock_purchase(
                 set_={
                     "total_weight": InventoryBalance.total_weight + statement.excluded.total_weight,
                     "cost_usd": InventoryBalance.cost_usd + statement.excluded.cost_usd,
+                    "updated_at": func.clock_timestamp(),
                 },
             )
         )
@@ -328,6 +329,15 @@ async def create_customer_bulk_purchase(db, data, user_id):
         delta=data.weight,
         value=data.paid_usd,
     )
+    balance = await db.execute(
+        select(InventoryBalance.id, InventoryBalance.updated_at).where(
+            InventoryBalance.unit == active_unit(),
+            InventoryBalance.location_id == data.location_id,
+            InventoryBalance.purity_id == product.purity_id,
+            InventoryBalance.placement == data.placement,
+        )
+    )
+    stock.credited_balance_id, stock.credited_balance_updated_at = balance.one()
     if data.paid_usd:
         db.add(
             CashEntry(

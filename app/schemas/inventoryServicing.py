@@ -34,6 +34,11 @@ class ServiceSaleCreate(BaseModel):
     cost: Decimal = Field(ge=0, max_digits=14, decimal_places=2)
 
 
+class ServicePaymentCorrection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    cost: Decimal = Field(ge=0, max_digits=14, decimal_places=2)
+
+
 class ServiceSaleResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int

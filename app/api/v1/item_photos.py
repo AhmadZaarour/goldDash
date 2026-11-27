@@ -1,6 +1,6 @@
 """Authenticated item photos with local or private object storage."""
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Response
 from fastapi.responses import FileResponse
 
 from app.api.v1.inventory_operations import Database

@@ -16,16 +16,23 @@ import { ShowroomReceipts } from "./factory";
 import { ServiceSaleButton } from "./servicing";
 import { BarcodeScanButton } from "./barcode-scanner";
 import { normalizeBarcode } from "./barcode-camera";
-import { ItemCostLabel, SaleItemCost } from "./item-cost";
+import { ItemCostLabel, ReadOnlyGoldPrice, SaleItemCost } from "./item-cost";
 import { SupplierSettlement, type SupplierBalance } from "./settlement";
 import {
   GoldPrice,
   useGoldQuote,
   customerQuote,
   gramPrice,
-  type GoldQuote,
+  isFreshQuote,
 } from "./gold-price";
 import { MonthlyProfitView } from "./profit";
+import {
+  defaultLocationKey,
+  useDefaultLocation,
+  useLocationChoice,
+  useLocationValues,
+  type DefaultLocation,
+} from "./location-settings";
 import { all, get, request, raw, list, Operation, type Row } from "./api";
 import { useLanguage } from "./i18n";
 import { useCan, useUser, useWorkspace } from "./session";
@@ -159,7 +166,7 @@ export function Dashboard() {
   const { t } = useLanguage();
   const u = useUser();
   const can = useCan();
-  const [loc, setLoc] = useState("");
+  const [loc, setLoc] = useLocationChoice();
   const inv = useQuery({
     queryKey: ["list", "dashboard-inventory"],
     queryFn: () => list("/inventory/items", { status: "in_stock", limit: 1 }),
@@ -374,6 +381,56 @@ const catalogs: Record<
     ],
   },
 };
+function DefaultLocationSettings() {
+  const { t } = useLanguage();
+  const settings = useDefaultLocation();
+  const queryClient = useQueryClient();
+  const [saved, setSaved] = useState(false);
+  return (
+    <section className="panel">
+      <h2>{t("Default location")}</h2>
+      <p>{t("Preselect this location on new entries in both workspaces.")}</p>
+      {settings.isLoading && <Busy />}
+      <ErrorBox error={settings.error} />
+      {settings.data && (
+        <Form
+          key={settings.data.location_id ?? "none"}
+          fields={[
+            {
+              ...locationField,
+              required: false,
+              placeholder: "No default location",
+            },
+          ]}
+          initial={{ location_id: String(settings.data.location_id ?? "") }}
+          submit={async (values) => {
+            setSaved(false);
+            const updated = await request<DefaultLocation>(
+              "/locations/default",
+              {
+                method: "PUT",
+                body: JSON.stringify({
+                  location_id: values.location_id
+                    ? Number(values.location_id)
+                    : null,
+                }),
+              },
+            );
+            queryClient.setQueryData(defaultLocationKey, updated);
+          }}
+          done={() => setSaved(true)}
+        >
+          {saved && (
+            <div className="notice success" role="status">
+              {t("Saved successfully")}
+            </div>
+          )}
+        </Form>
+      )}
+    </section>
+  );
+}
+
 export function Catalog() {
   const { t } = useLanguage();
   const can = useCan();
@@ -412,6 +469,7 @@ export function Catalog() {
             </button>
           ))}
       </div>
+      {tab === "locations" && can.admin && <DefaultLocationSettings />}
       <section className="panel">
         <DataList
           key={tab}
@@ -687,7 +745,13 @@ export function Inventory() {
               action === "Update photo"
                 ? [{ key: "image_url", label: "Image URL", maxLength: 2048 }]
                 : action === "Item transfer"
-                  ? [locationField]
+                  ? [
+                      {
+                        ...locationField,
+                        key: "destination_location_id",
+                        label: "Destination location",
+                      },
+                    ]
                   : [
                       purity,
                       {
@@ -737,7 +801,7 @@ export function Inventory() {
               if (action === "Item transfer")
                 return op.current.send(
                   `/inventory/items/${item!.id}/transfer`,
-                  { location_id: Number(v.location_id) },
+                  { location_id: Number(v.destination_location_id) },
                 );
               return op.current.send(
                 "/inventory/stocks/transfer",
@@ -825,41 +889,6 @@ function PurchasePhoto({
   );
 }
 
-function ReadOnlyGoldPrice({ price }: { price: string }) {
-  const { t } = useLanguage();
-  return (
-    <p>
-      {t("Gold price / gram")}:{" "}
-      <output aria-label={t("Calculated gold price / gram")} dir="ltr">
-        {price}
-      </output>{" "}
-      USD
-    </p>
-  );
-}
-function SaleLivePrice({
-  itemId,
-  quote,
-  purities,
-}: {
-  itemId: string;
-  quote: GoldQuote | undefined;
-  purities: Row[];
-}) {
-  const item = useQuery({
-    queryKey: ["list", "item-cost", itemId],
-    queryFn: () => get<Row>(`/inventory/items/${itemId}`),
-  });
-  return (
-    <ReadOnlyGoldPrice
-      price={gramPrice(
-        quote,
-        purities.find((p) => p.id === item.data?.purity_id),
-      )}
-    />
-  );
-}
-
 function TradeForm({
   kind,
   done,
@@ -872,7 +901,7 @@ function TradeForm({
   const workspace = useWorkspace();
   const customerBulk = kind === "customerBulkPurchase";
   const bulk = kind.startsWith("bulk") || customerBulk;
-  const [head, setHead] = useState<Values>({});
+  const [head, setHead] = useLocationValues();
   const [lines, setLines] = useState<Values[]>([{}]);
   const [scan, setScan] = useState("");
   const [barcodeLookup, setBarcodeLookup] = useState(false);
@@ -904,11 +933,7 @@ function TradeForm({
       return { products, purities };
     },
   });
-  const freshQuote =
-    !!pricedQuote &&
-    !pricedQuote.stale &&
-    !quote.isError &&
-    Date.now() - Date.parse(pricedQuote.fetched_at) < 30_000;
+  const freshQuote = !quote.isError && isFreshQuote(pricedQuote);
   function linePrice(productId: unknown) {
     const p = pricing.data?.products.find(
       (p) => String(p.id) === String(productId),
@@ -1118,13 +1143,19 @@ function TradeForm({
         <>
           <p>
             {t(
-              "Gold prices are calculated from the live quote when the trade is confirmed.",
+              "Gold prices are calculated from the active quote when you confirm the trade.",
             )}
           </p>
           {quote.data && (
             <p>
-              {t(freshQuote ? "Latest quote" : "Stale quote")} ·{" "}
-              {date(quote.data.fetched_at)}
+              {t(
+                !quote.isError && quote.data.quote_mode === "manual"
+                  ? "Manual gold quote"
+                  : freshQuote
+                    ? "Latest quote"
+                    : "Stale quote",
+              )}{" "}
+              · {date(quote.data.fetched_at)}
             </p>
           )}
           {(customerBulk || kind === "customerSale") && pricedQuote && (
@@ -1262,9 +1293,9 @@ function TradeForm({
               />
             )}
             {kind === "customerSale" && v.inventory_item_id && (
-              <SaleLivePrice
+              <SaleItemCost
                 itemId={String(v.inventory_item_id)}
-                quote={pricedQuote}
+                quote={freshQuote ? pricedQuote : undefined}
                 purities={pricing.data?.purities || []}
               />
             )}
@@ -1281,9 +1312,6 @@ function TradeForm({
                   )
                 }
               />
-            )}
-            {kind === "customerSale" && v.inventory_item_id && (
-              <SaleItemCost itemId={String(v.inventory_item_id)} />
             )}
           </section>
         ))}
@@ -1856,7 +1884,7 @@ export function Suppliers() {
 export function Cash() {
   const { t } = useLanguage();
   const can = useCan();
-  const [loc, setLoc] = useState("");
+  const [loc, setLoc] = useLocationChoice();
   const [tab, setTab] = useState("Entries");
   const [action, setAction] = useState("");
   const op = useRef(new Operation());

@@ -279,8 +279,31 @@ test("development reset requires exact confirmation and refreshes dashboard", as
 
 test("piece cost reference in inventory and customer checkout", async ({
   page,
-}, info) => {
+}) => {
   await api(page, "cashier");
+  await page.clock.install();
+  let gramPrice = "100";
+  await page.route("**/api/v1/gold-price", async (route) => {
+    const quote = {
+      ounce_usd: "3047.8",
+      gram_24k_usd: "98",
+      gram_21k_usd: "86.18",
+      gram_18k_usd: "73.87",
+      fetched_at: await page.evaluate(() => new Date().toISOString()),
+      stale: false,
+    };
+    await route.fulfill({
+      json: {
+        ...quote,
+        customer_sell: {
+          ...quote,
+          ounce_usd: String(Number(gramPrice) * 31.1),
+          gram_24k_usd: gramPrice,
+          available: true,
+        },
+      },
+    });
+  });
   await login(page);
   await navigate(page, "Inventory");
   await expect(page.getByText("$165.00", { exact: true })).toBeVisible();
@@ -304,7 +327,7 @@ test("piece cost reference in inventory and customer checkout", async ({
     name: "Piece cost reference",
     exact: true,
   });
-  await expect(reference.getByText("$165.00", { exact: true })).toBeVisible();
+  await expect(reference.getByText("$265.00", { exact: true })).toBeVisible();
   await expect(reference.getByText("2.500 g", { exact: true })).toBeVisible();
   await expect(
     dialog.getByLabel("Gold price / gram", { exact: true }),
@@ -312,13 +335,13 @@ test("piece cost reference in inventory and customer checkout", async ({
   await expect(
     dialog.getByLabel("Calculated gold price / gram", { exact: true }),
   ).toHaveText("100.0000");
-  await expect(
-    dialog.getByLabel("Final price (USD)", { exact: true }),
-  ).toHaveValue("");
-  await reference.scrollIntoViewIfNeeded();
-  await page.screenshot({
-    path: `test-results/${info.project.name}-piece-base-cost.png`,
-  });
+  const finalPrice = dialog.getByLabel("Final price (USD)", { exact: true });
+  await expect(finalPrice).toHaveValue("");
+  await finalPrice.fill("400");
+  gramPrice = "120";
+  await page.clock.fastForward(30_000);
+  await expect(reference.getByText("$315.00", { exact: true })).toBeVisible();
+  await expect(finalPrice).toHaveValue("400");
   await dialog.getByRole("button", { name: "Close", exact: true }).click();
   await page.getByRole("button", { name: "العربية", exact: true }).click();
   // Return to inventory to verify the bilingual label without submitting a sale.

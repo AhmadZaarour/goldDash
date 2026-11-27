@@ -76,7 +76,9 @@ export async function api(page: Page, role = "admin") {
           image_url: null,
         },
       ];
-    else if (path === "/inventory/items/1")
+    else if (
+      path === "/inventory/items/1" || path === "/inventory/items/1/sale-cost"
+    )
       body = {
         id: 1,
         barcode: "GI1234567890ABCDEF",
@@ -84,6 +86,7 @@ export async function api(page: Page, role = "admin") {
         purity_id: 1,
         weight: "2.500",
         base_cost_usd: "165.00",
+        base_making_usd: "15.00",
         status: "in_stock",
         location_id: 1,
       };
@@ -93,6 +96,7 @@ export async function api(page: Page, role = "admin") {
       ];
     else if (path === "/locations")
       body = [{ id: 1, name: "Main showroom", code: "MAIN", is_active: true }];
+    else if (path === "/locations/default") body = { location_id: null };
     else if (path === "/products")
       body = [
         {

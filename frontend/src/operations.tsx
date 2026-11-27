@@ -7,6 +7,7 @@ import { all, get, Operation, type Row } from "./api";
 import { useLanguage } from "./i18n";
 import { useCan, useUser, useWorkspace } from "./session";
 import { useGoldQuote } from "./gold-price";
+import { useLocationValues } from "./location-settings";
 import {
   Busy,
   DataList,
@@ -246,7 +247,7 @@ export function BalanceSetup() {
   const unit = useWorkspace();
   const [action, setAction] = useState("");
   const [rows, setRows] = useState<Values[]>([]);
-  const [head, setHead] = useState<Values>({ cash_usd: "0" });
+  const [head, setHead] = useLocationValues({ cash_usd: "0" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>();
   const [reverse, setReverse] = useState<Row>();

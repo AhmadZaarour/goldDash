@@ -11,6 +11,31 @@ const en: Record<string, string> = {
   service_sale: "Service sale",
 };
 const ar: Record<string, string> = {
+  "Data management": "إدارة البيانات",
+  "Edit or delete stored records across workspaces. Corrections may require matching changes to linked records.":
+    "عدّل السجلات المخزّنة أو احذفها في جميع مساحات العمل. قد تتطلب التصحيحات تعديلات مماثلة على السجلات المرتبطة.",
+  "Database table": "جدول قاعدة البيانات",
+  "Find by primary key": "البحث بالمفتاح الأساسي",
+  Clear: "مسح",
+  "Database record": "السجل",
+  "View / edit": "عرض أو تعديل",
+  "Record details": "تفاصيل السجل",
+  "No value": "بدون قيمة",
+  "Enter valid JSON": "أدخل بيانات JSON صالحة",
+  "Enter a whole number": "أدخل عدداً صحيحاً",
+  Yes: "نعم",
+  No: "لا",
+  "Delete record": "حذف السجل",
+  "Permanently delete this record?": "هل تريد حذف هذا السجل نهائياً؟",
+  "Record updated": "تم تحديث السجل",
+  "Record deleted": "تم حذف السجل",
+  "Gold quote settings": "إعدادات سعر الذهب",
+  "Manual gold price": "سعر الذهب اليدوي",
+  "Manual gold quote": "سعر الذهب المحدد يدوياً",
+  "Quote source": "مصدر السعر",
+  "Refresh live quote": "تحديث السعر المباشر",
+  "Use a manual quote": "استخدام سعر يدوي",
+  "Manual 24K ounce (USD)": "سعر أونصة عيار 24 يدوياً (دولار)",
   "Customer price adjustments": "تعديلات سعر الذهب للعملاء",
   "Customer price adjustments saved": "تم حفظ تعديلات سعر الذهب للعملاء",
   "Customer gold prices": "أسعار الذهب للعملاء",
@@ -230,8 +255,8 @@ const ar: Record<string, string> = {
     "أسند هذا السجل وسجلاته المالية المرتبطة بعد مراجعة ملكيتها فقط.",
 
   "Gold charge (24K equivalent g)": "استحقاق الذهب (غ مكافئ لعيار ٢٤)",
-  "Gold prices are calculated from the live quote when the trade is confirmed.":
-    "تُحسب أسعار الذهب من السعر المباشر عند تأكيد العملية.",
+  "Gold prices are calculated from the active quote when you confirm the trade.":
+    "تُحسب أسعار الذهب من السعر المعتمد عند تأكيد العملية.",
   "Enter 0 USD for opening stock. No cash payment or supplier debt is recorded.":
     "أدخل 0 دولار للمخزون الافتتاحي. لا تُسجَّل دفعة نقدية أو مديونية للمورد.",
   "Calculated gold price / gram": "سعر الذهب المحسوب للغرام",
@@ -266,6 +291,8 @@ const ar: Record<string, string> = {
   "Base cost (USD)": "التكلفة الأساسية (دولار)",
   "Cash equivalent at purchase gold price, including gold charge and supplier making charge.":
     "القيمة النقدية بسعر الذهب عند الشراء، شاملة استحقاق الذهب ومصنعية المورد.",
+  "Gold value at the current selling quote plus the piece’s making charge.":
+    "قيمة الذهب بسعر البيع المعتمد حالياً مضافاً إليها مصنعية القطعة.",
   "Development tools": "أدوات التطوير",
   "Clear business data from this disposable development database. Staff accounts and login access are preserved.":
     "امسح بيانات العمل من قاعدة بيانات التطوير المؤقتة. تبقى حسابات الموظفين وإمكانية تسجيل الدخول محفوظة.",
@@ -382,6 +409,11 @@ const ar: Record<string, string> = {
   Type: "النوع",
   Status: "الحالة",
   Location: "الموقع",
+  "Default location": "الموقع الافتراضي",
+  "No default location": "بلا موقع افتراضي",
+  "Destination location": "موقع الوجهة",
+  "Preselect this location on new entries in both workspaces.":
+    "اختيار هذا الموقع تلقائياً عند إنشاء سجلات جديدة في مساحتي العمل.",
   Supplier: "المورّد",
   Customer: "العميل",
   Product: "المنتج",

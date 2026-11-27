@@ -114,12 +114,11 @@ to direct API calls. Keep it disabled outside disposable development systems.
 
 ## Piece cost reference
 
-The item inventory table, piece detail dialog and each selected customer-sale
-line show the piece's total physical weight and calculated base cost in USD.
-Base cost uses physical weight × (purchase gold price per gram + making charge),
-preserving the formula on the test branch. It is a cash-equivalent pricing
-reference, separate from payment status and the monthly report's sale-time gold
-valuation. Checkout keeps the final selling price blank for explicit entry.
+The inventory table and piece details show physical weight and the recorded
+acquisition cost. At customer checkout, each selected piece shows its gold value
+at the active customer selling quote plus its making charge. This reference
+updates with the quote in the open form. The cashier enters the final selling
+price separately.
 
 ## Updated purchase and settlement workflows
 

@@ -9,10 +9,24 @@ from fastapi import HTTPException
 from redis.exceptions import RedisError
 
 from app.core.redis import redis
+from app.services.customer_pricing import price_settings
 from app.services.gold_conversion import purchase_factor
 
 QUOTE_KEY = "gold:quote:v1"
 COOLDOWN_KEY = "gold:attempt:v1"
+
+
+def ounce_quote(ounce: Decimal, fetched_at: datetime, source_updated_at: str | None = None):
+    gram = ounce / Decimal("31.1")
+    return {
+        "ounce_usd": str(ounce),
+        "gram_24k_usd": str(gram),
+        "gram_21k_usd": str(gram * Decimal("0.875") / Decimal("0.995")),
+        "gram_18k_usd": str(gram * Decimal("0.75") / Decimal("0.995")),
+        "fetched_at": fetched_at.isoformat(),
+        "source_updated_at": source_updated_at,
+        "currency": "USD",
+    }
 
 
 async def get_quote():
@@ -38,16 +52,7 @@ async def get_quote():
                 ounce = Decimal(str(data["price"]))
                 if not ounce.is_finite() or ounce <= 0:
                     raise ValueError("Invalid gold price")
-                gram = ounce / Decimal("31.1")
-                quote = {
-                    "ounce_usd": str(ounce),
-                    "gram_24k_usd": str(gram),
-                    "gram_21k_usd": str(gram * Decimal("0.875") / Decimal("0.995")),
-                    "gram_18k_usd": str(gram * Decimal("0.75") / Decimal("0.995")),
-                    "fetched_at": datetime.now(UTC).isoformat(),
-                    "source_updated_at": data.get("updatedAt"),
-                    "currency": "USD",
-                }
+                quote = ounce_quote(ounce, datetime.now(UTC), data.get("updatedAt"))
                 await redis.set(QUOTE_KEY, json.dumps(quote))
                 return {**quote, "stale": False}
             except (httpx.HTTPError, ValueError, KeyError, TypeError, InvalidOperation):
@@ -58,6 +63,17 @@ async def get_quote():
     except RedisError as error:
         # Fail closed rather than make uncoordinated calls when shared cache fails.
         raise HTTPException(503, "Gold price cache unavailable") from error
+
+
+async def effective_quote(db, live_quote):
+    settings = await price_settings(db)
+    if settings.manual_ounce_usd is None:
+        return {**await live_quote(), "quote_mode": "live"}
+    return {
+        **ounce_quote(settings.manual_ounce_usd, settings.quote_updated_at or settings.updated_at),
+        "stale": False,
+        "quote_mode": "manual",
+    }
 
 
 def require_fresh_quote(quote: dict) -> None:

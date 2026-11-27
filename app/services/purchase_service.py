@@ -24,7 +24,7 @@ from app.schemas.purchases import (
 )
 from app.services.customer_pricing import snapshot, trade_quote
 from app.services.gold_conversion import allocate_charge, canonical_purity, grams24, purchase_factor
-from app.services.gold_price import get_quote, price_per_gram, require_fresh_quote
+from app.services.gold_price import effective_quote, get_quote, price_per_gram, require_fresh_quote
 from app.services.inventory_service import (
     create_item,
     create_movement,
@@ -65,7 +65,7 @@ async def create_item_purchase(
     fine_total = sum(fine, Decimal(0))
     debt = grams24(fine_total, Decimal(1))
     canonical = await canonical_purity(db)
-    quote = await get_quote()
+    quote = await effective_quote(db, get_quote)
     require_fresh_quote(quote)
     purchase = Purchase(
         **purchase_data.model_dump(exclude={"items"}, exclude_none=True),
@@ -287,7 +287,7 @@ async def create_customer_bulk_purchase(db, data, user_id):
     if data.paid_usd and await available_cash(db, data.location_id) < data.paid_usd:
         raise ValueError("Insufficient cash in the selected drawer")
     purity = await db.get(GoldPurity, product.purity_id)
-    quote = await get_quote()
+    quote = await effective_quote(db, get_quote)
     require_fresh_quote(quote)
     quote = await trade_quote(db, quote, "buy")
     purchase = Purchase(

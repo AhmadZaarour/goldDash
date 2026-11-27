@@ -9,10 +9,12 @@ from app.core.dependencies import require_role
 from app.core.pagination import paginate
 from app.models.location import Location
 from app.models.user import UserRole
-from app.schemas.locations import LocationCreate, LocationResponse, LocationUpdate
+from app.schemas.locations import DefaultLocation, LocationCreate, LocationResponse, LocationUpdate
 from app.services.locations_service import (
     create_location,
+    get_default_location,
     get_location,
+    set_default_location,
     update_location,
 )
 
@@ -20,6 +22,29 @@ router = APIRouter(
     prefix="/locations",
     tags=["Locations"],
 )
+
+
+@router.get("/default", response_model=DefaultLocation)
+async def get_default_location_endpoint(
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> DefaultLocation:
+    return DefaultLocation(location_id=await get_default_location(db))
+
+
+@router.put(
+    "/default",
+    dependencies=[Depends(require_role(UserRole.ADMIN))],
+    response_model=DefaultLocation,
+)
+async def set_default_location_endpoint(
+    data: DefaultLocation,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> DefaultLocation:
+    try:
+        await set_default_location(db, data.location_id)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    return data
 
 
 @router.post(

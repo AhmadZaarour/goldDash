@@ -28,8 +28,9 @@ according to ACCESS_TOKEN_EXPIRE_MINUTES and are not revoked by logout alone.
 ## Gold prices, purities and supplier obligations
 
 Authenticated `GET /api/v1/gold-price` returns USD per ounce and per gram for
-24K, 21K and 18K, `fetched_at`, provider `source_updated_at`, and `stale`.
-The backend alone requests `https://api.gold-api.com/price/XAU`. Redis shares a
+24K, 21K and 18K, `fetched_at`, provider `source_updated_at`, `stale`, and
+`quote_mode`. In live mode the backend requests
+`https://api.gold-api.com/price/XAU`. Redis shares a
 30-second successful-quote cache and upstream-attempt cooldown across workers.
 Concurrent refreshes coalesce; failures also observe the cooldown. The last
 successful quote is retained and explicitly marked stale on failure. A first
@@ -53,7 +54,7 @@ Changing catalog settings does not recalculate completed transactions.
 `POST /api/v1/purchases/item` is admin-only and requires `Idempotency-Key`.
 Each line contains product, physical weight, making charge in USD per physical gram and optional
 external image URL or staged `photo_token`. Purchase gold price is server-calculated,
-not an input: one fresh cached live quote prices the entire invoice. Each line
+not an input. One active quote prices the entire invoice. Each line
 uses USD per 24K gram × its purchase valuation factor, rounded to four decimal
 places half up. The invoice stores `gold_quote_at` and each piece retains its
 calculated `gold_price_per_gram`. Stale/unavailable quotes return 503 with no
@@ -79,9 +80,8 @@ For example, 5g of 21K plus 2.5g of 18K records 4.397g and 1.884g of 24K-equival
 charge, totaling 6.281g. Physical weights remain 5g and 2.5g; the 21K piece must
 never be relabeled as a 5.25g physical charge.
 
-The pricing-reference base cost retains the existing formula: physical weight ×
-(purchase gram price + making charge). No 24K-equivalent grams are multiplied by
-a physical 18K/21K gram price. New sale-time reporting similarly uses the recorded
+The acquisition cost uses physical weight × (purchase gram price + making charge).
+Sale-time pricing uses the current quote. New sale-time reporting uses the recorded
 physical charge and matching sale gram rate. Historical prices, original charge
 fields, cash and ledger entries remain unchanged. The migration adds explicit 24K
 charges to prior invoices only where complete saved line conversion factors and
@@ -394,25 +394,25 @@ activity; it does not lock out other browser sessions after completion.
 
 ## Barcoded piece base cost
 
-Inventory item list/detail responses include read-only `base_cost_usd`, calculated
-from the linked purchase line as `weight × (gold_price_per_gram + making_charge)`,
-rounded to cents half up. This retains the pricing-reference formula already on
-the test branch. It is separate from supplier debt and the monthly report's
-sale-time gold valuation.
+The customer sale form calculates each selected piece's base cost from the
+active customer selling quote and the piece's making charge. Supplier-purchased
+pieces use physical weight × the current gram rate for their purity, plus the
+piece's total making charge. Pieces received from production use their
+24K-equivalent weight and the current 24K gram rate. The form rounds the result
+to cents. This calculated amount is a pricing reference and is never saved.
+The cashier enters the final selling price.
+`GET /api/v1/inventory/items/{id}/sale-cost` supplies the calculation inputs.
 
-For example, a 10.000 g piece with a purchase gold price of $80/g and a making
-rate of $15/g has a $950.00 base cost under this formula. New inventory stores the
-acquisition cost snapshot; older pieces without a snapshot use the purchase-line formula.
-It remains tied to the original purchase across transfers, sales, returns and
-resale. Inventory lists/details and each selected customer-sale line show weight
-and base cost for pricing reference. The final selling price remains explicitly
-entered by the cashier. Monthly profit continues to use the sale-time gold
-valuation selected for that report; this purchase-cost label does not change it.
+Inventory lists and details retain the acquisition-cost reference in
+`base_cost_usd`. Older purchases without an acquisition snapshot use
+physical weight × (purchase gram price + making rate), rounded to cents half up.
+Accounting and profit reports continue to use their existing saved amounts and
+the applicable valuation method.
 
 ## Live per-gram rates on every new trade
 
-All supported purchases and sales now use the same server-side market calculation.
-One fresh quote is used for an entire invoice, with USD per physical gram rounded
+All supported purchases and sales use the same server-side rate calculation.
+One active quote is used for an entire invoice, with USD per physical gram rounded
 to four decimal places, half up:
 
 | Purity | USD per gram |
@@ -693,7 +693,7 @@ compatibility endpoints; current factory screens use the weight routes.
 
 Each workspace has independent **buying** and **selling** USD-per-ounce adjustments,
 both defaulting to zero. Admins edit them from **Customer price adjustments** on
-the live gold dashboard. Enter a positive amount to add to the market ounce or a
+the dashboard. Enter a positive amount to add to the active ounce quote or a
 negative amount to subtract. The server records the editor and update time.
 
 For customer gold sales, apply the selling adjustment; for walk-in customer bulk
@@ -727,6 +727,30 @@ quote cached across workspaces/workers for 30 seconds; adding profiles or changi
 settings does not bypass the upstream cooldown. `GET /api/v1/gold-price/settings`
 reads the active workspace's settings, and admin-only `PUT` replaces both signed
 adjustments. Configuration can be edited without an available external quote.
+
+Admins can use **Gold quote settings** on Overview to enter a positive manual
+USD-per-ounce quote for the current workspace. Trades in that workspace use the
+saved quote until the admin switches back to live pricing. Customer buying and
+selling adjustments apply to either source. The manual quote remains usable
+regardless of its age. The admin-only `PUT /api/v1/gold-price/quote-mode` endpoint
+accepts `manual_ounce_usd` or `null` to resume live pricing.
+
+## Default location
+
+Admins set a shared default under **Catalog → Locations**. New forms preselect
+that location in Factory and Showroom where a single location is used. Users can
+choose a different location on individual entries. Transfer destinations and
+workflows that explicitly require separate locations retain their own selectors.
+
+## Admin data management
+
+**Data management** lets admins edit or delete records in registered application
+tables across workspaces. These corrections operate on individual records.
+Related balances or transaction records may need corresponding edits. Existing
+database constraints block conflicting changes, including a deletion while
+another record references it through a restrictive foreign key. Primary keys
+and password hashes are protected. Admins cannot delete, deactivate or demote
+their own account from this page.
 
 Apply migration `h12026prices` before using this version. Defaults are zero until
 explicitly saved. Downgrade refuses to discard saved settings or new customer price

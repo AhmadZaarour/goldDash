@@ -17,6 +17,7 @@ import {
 import Decimal from "decimal.js";
 import { all, list, get, type Row, ApiError } from "./api";
 import { useLanguage } from "./i18n";
+import { useLocationValues } from "./location-settings";
 export const text = (x: unknown) => (x == null ? "—" : String(x));
 export const money = (x: unknown) => {
   try {
@@ -112,6 +113,7 @@ export interface Field {
   maxLength?: number;
   step?: string;
   optional?: boolean;
+  placeholder?: string;
 }
 export type Values = Record<string, string | boolean>;
 export function Select({
@@ -137,7 +139,9 @@ export function Select({
       onChange={(e) => change(e.target.value)}
       disabled={q.isLoading}
     >
-      <option value="">{t(field.optional ? "All" : "Choose…")}</option>
+      <option value="">
+        {t(field.placeholder ?? (field.optional ? "All" : "Choose…"))}
+      </option>
       {field.options?.map((v) => (
         <option key={v} value={v}>
           {t(v)}
@@ -264,7 +268,12 @@ export function Form({
   children?: ReactNode;
   button?: string;
 }) {
-  const [v, set] = useState<Values>(initial);
+  const [v, set] = useLocationValues(
+    initial,
+    fields.some(
+      (field) => field.key === "location_id" && field.resource === "locations",
+    ),
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>();
   const { t } = useLanguage();

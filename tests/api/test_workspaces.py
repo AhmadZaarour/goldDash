@@ -213,6 +213,12 @@ async def test_production_internal_sale_customer_sale_and_payment(
     )
     assert showroom_item.status_code == 200, showroom_item.text
     assert Decimal(showroom_item.json()["base_cost_usd"]) == Decimal("386.90")
+    sale_cost_url = f"/api/v1/inventory/items/{item_id}/sale-cost"
+    sale_cost = await client.get(sale_cost_url, headers=header("showroom"))
+    assert sale_cost.status_code == 200, sale_cost.text
+    assert Decimal(sale_cost.json()["base_gold_24k"]) == Decimal("3.769")
+    assert Decimal(sale_cost.json()["base_making_usd"]) == Decimal("10")
+    assert (await client.get(sale_cost_url, headers=header("factory"))).status_code == 404
     assert (
         await client.get(f"/api/v1/inventory/items/{item_id}", headers=header("factory"))
     ).status_code == 404

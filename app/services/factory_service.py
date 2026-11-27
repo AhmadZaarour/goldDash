@@ -22,7 +22,7 @@ from app.models.operations import (
 )
 from app.schemas.inventory import InventoryItemCreate
 from app.services.gold_conversion import canonical_purity, grams24, purchase_factor
-from app.services.gold_price import get_quote, require_fresh_quote
+from app.services.gold_price import effective_quote, get_quote, require_fresh_quote
 from app.services.inventory_service import create_item
 from app.services.operations_query_service import record
 from app.services.product_inventory_type import validate_purchase_product
@@ -517,7 +517,7 @@ async def trade_rows(db, rows, location_id, price, *, invoice_id=None, sale_id=N
 async def supplier_sale(db, data, user_id):
     await lock_locations(db, data.location_id)
     await require_active_supplier(db, data.supplier_id, exclusive=True)
-    quote = await get_quote()
+    quote = await effective_quote(db, get_quote)
     require_fresh_quote(quote)
     sale = Sale(
         unit="factory",

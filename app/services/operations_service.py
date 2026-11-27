@@ -37,7 +37,7 @@ from app.models.operations import (
 from app.schemas.inventory import InventoryItemCreate
 from app.schemas.operations import LegacyAssignCreate, OperationResult
 from app.services.gold_conversion import allocate_charge, grams24, purchase_factor
-from app.services.gold_price import get_quote, price_per_gram, require_fresh_quote
+from app.services.gold_price import effective_quote, get_quote, price_per_gram, require_fresh_quote
 from app.services.idempotency import claim_operation, complete_operation
 from app.services.inventory_service import create_item
 from app.services.operations_query_service import LEGACY_MODELS
@@ -393,7 +393,7 @@ async def production(db, data, user_id):
     costs = allocate_value(total, output_weights)
     direct_costs = allocate_value(data.direct_cost_usd, output_weights)
     charges = allocate_charge(grams24(output_gold, Decimal(1)), output_weights)
-    quote = await get_quote()
+    quote = await effective_quote(db, get_quote)
     require_fresh_quote(quote)
     doc = await document(
         db,
@@ -673,7 +673,7 @@ async def supplier_item_sale(db, data, user_id):
     await lock_locations(db, data.location_id)
     await require_active_supplier(db, data.supplier_id, exclusive=True)
     items = await locked_factory_pieces(db, data.pieces, data.location_id)
-    quote = await get_quote()
+    quote = await effective_quote(db, get_quote)
     require_fresh_quote(quote)
     sale = Sale(
         unit="factory",

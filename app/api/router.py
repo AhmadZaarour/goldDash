@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends
 
+from app.api.v1.admin_data import router as admin_data_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.cash import router as cash_router
 from app.api.v1.categories import router as categories_router
@@ -32,6 +33,7 @@ api_router = APIRouter(
 
 routers = [
     auth_router,
+    admin_data_router,
     users_router,
     products_router,
     gold_purities_router,

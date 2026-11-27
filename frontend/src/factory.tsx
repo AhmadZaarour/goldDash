@@ -5,6 +5,7 @@ import { all, get, raw, Operation, type Row } from "./api";
 import { useCan } from "./session";
 import { useLanguage } from "./i18n";
 import { useGoldQuote } from "./gold-price";
+import { useLocationValues } from "./location-settings";
 import { ServiceSaleButton } from "./servicing";
 import {
   Busy,
@@ -164,7 +165,7 @@ export function Production() {
   const q = useQueryClient();
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<Row>();
-  const [head, setHead] = useState<Values>({ direct_cost_usd: "0" });
+  const [head, setHead] = useLocationValues({ direct_cost_usd: "0" });
   const [inputs, setInputs] = useState<Values[]>([{}]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>();
@@ -477,7 +478,7 @@ export function WeightTradeForm({
     queryKey: ["options", "factory-purities"],
     queryFn: () => all("/goldpurities"),
   });
-  const [head, setHead] = useState<Values>({});
+  const [head, setHead] = useLocationValues();
   const [rows, setRows] = useState<Values[]>([{ making_per_gram: "0" }]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>();
@@ -725,7 +726,7 @@ export function FactoryInventory() {
   const can = useCan();
   const [open, setOpen] = useState(false);
   const [moving, setMoving] = useState(false);
-  const [head, setHead] = useState<Values>({});
+  const [head, setHead] = useLocationValues();
   const [rows, setRows] = useState<Values[]>([{}]);
   const op = useRef(new Operation());
   const done = useDone(() => {

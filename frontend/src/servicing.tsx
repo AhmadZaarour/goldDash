@@ -5,6 +5,7 @@ import { useCan } from "./session";
 import { useLanguage } from "./i18n";
 import { BarcodeScanButton } from "./barcode-scanner";
 import { normalizeBarcode } from "./barcode-camera";
+import { useLocationChoice } from "./location-settings";
 import {
   Badge,
   DataList,
@@ -129,20 +130,21 @@ function ServiceCheckout({
 }) {
   const { t } = useLanguage();
   const [service, setService] = useState<Service | undefined>(initial);
-  const [location, setLocation] = useState("");
   const [cost, setCost] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>();
   const submitting = useRef(false);
   const op = useRef(new Operation());
   const locations = useQuery({
-    queryKey: ["list", "service-locations"],
+    queryKey: ["options", "locations"],
     queryFn: () => all("/locations"),
   });
-  useEffect(() => {
-    const active = locations.data?.filter((r) => r.is_active !== false);
-    if (active?.length === 1) setLocation(String(active[0].id));
-  }, [locations.data]);
+  const activeLocations = locations.data?.filter(
+    (row) => row.is_active !== false,
+  );
+  const [location, setLocation] = useLocationChoice(
+    activeLocations?.length === 1 ? String(activeLocations[0].id) : "",
+  );
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (

@@ -13,11 +13,13 @@ from app.models.operations import ProductionPiece
 from app.schemas.inventory import (
     InventoryItemImageUpdate,
     InventoryItemResponse,
+    InventoryItemSaleCostResponse,
     InventoryMovementResponse,
     InventoryStockResponse,
 )
 from app.services.inventory_service import (
     get_item,
+    get_item_cost_components,
     get_movement,
     get_stock,
 )
@@ -28,14 +30,7 @@ router = APIRouter(
 )
 
 
-@router.get(
-    "/items/{item_id}",
-    response_model=InventoryItemResponse,
-)
-async def get_inventory_item_endpoint(
-    item_id: int,
-    db: Annotated[AsyncSession, Depends(get_db)],
-) -> InventoryItemResponse:
+async def require_inventory_item(db: AsyncSession, item_id: int) -> InventoryItem:
     item = await get_item(
         db,
         item_id,
@@ -46,6 +41,31 @@ async def get_inventory_item_endpoint(
             detail="item not found",
         )
     return item
+
+
+@router.get("/items/{item_id}", response_model=InventoryItemResponse)
+async def get_inventory_item_endpoint(
+    item_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> InventoryItemResponse:
+    return await require_inventory_item(db, item_id)
+
+
+@router.get("/items/{item_id}/sale-cost", response_model=InventoryItemSaleCostResponse)
+async def get_inventory_item_sale_cost(
+    item_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> InventoryItemSaleCostResponse:
+    item = await require_inventory_item(db, item_id)
+    gold_24k, making_usd = await get_item_cost_components(db, item)
+    return InventoryItemSaleCostResponse.model_validate(
+        {
+            **InventoryItemResponse.model_validate(item).model_dump(),
+            "base_gold_24k": gold_24k,
+            "base_making_usd": making_usd,
+        },
+        by_name=True,
+    )
 
 
 @router.get(

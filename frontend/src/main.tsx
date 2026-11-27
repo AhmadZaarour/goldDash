@@ -1,5 +1,6 @@
 import { Production, FactorySales, FactoryInventory } from "./factory";
 import { Servicing } from "./servicing";
+import { AdminData } from "./admin-data";
 import "@fontsource/dm-sans/latin-400.css";
 import "@fontsource/dm-sans/latin-600.css";
 import "@fontsource/noto-sans-arabic/arabic-400.css";
@@ -29,6 +30,7 @@ import {
   UserPlus,
   LogOut,
   Languages,
+  Database,
   Menu,
   X,
 } from "lucide-react";
@@ -198,6 +200,12 @@ function App() {
       to: "/staff",
       label: "Staff accounts",
       icon: UserPlus,
+      allow: user.role === "admin",
+    },
+    {
+      to: "/admin-data",
+      label: "Data management",
+      icon: Database,
       allow: user.role === "admin",
     },
   ];
@@ -383,6 +391,16 @@ function App() {
                 element={
                   user.role === "admin" ? (
                     <Staff />
+                  ) : (
+                    <Navigate to="/" replace />
+                  )
+                }
+              />
+              <Route
+                path="/admin-data"
+                element={
+                  user.role === "admin" ? (
+                    <AdminData />
                   ) : (
                     <Navigate to="/" replace />
                   )

@@ -108,7 +108,9 @@ business data. This feature does not reset PostgreSQL/Redis services or delete
 The dashboard uses authenticated `/api/v1/gold-price`; allow backend HTTPS egress
 to `api.gold-api.com`. Redis coordinates a 30-second quote cache and failure
 cooldown across workers. Provider/cache failures show stale or unavailable prices
-without bypassing the shared cache. Quotes never replace agreed transaction rates.
+without bypassing the shared cache. Admins can use **Gold quote settings** on
+Overview to set a manual USD-per-ounce quote or resume live pricing for the
+current workspace.
 
 Apply `uv run alembic upgrade head` before starting this version. This migrates
 purity values to exact decimals, records historical 24K-equivalent debt snapshots,
@@ -132,8 +134,9 @@ Apply migrations before running this version (`uv run alembic upgrade head`).
 
 Automatic per-gram market rates now cover customer sales, customer bulk purchases
 (including opening stock) and supplier bulk sales as well as supplier item invoices.
-Actual payment/final selling totals stay manual. All new trades require a fresh
-shared quote; completed records retain their prices. Run `uv run alembic upgrade head`
+Actual payment and final selling totals stay manual. New trades use a fresh
+live quote or the saved manual quote. Completed records retain their prices.
+Run `uv run alembic upgrade head`
 to add the bulk market-rate snapshots and sale quote timestamps before starting.
 
 Item purchase details now distinguish physical grams from `gold_charge_24k`.

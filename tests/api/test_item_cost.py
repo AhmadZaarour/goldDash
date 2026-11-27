@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 import pytest
 
 from tests.api.test_backend_access import headers_for
@@ -53,7 +55,10 @@ async def test_purchase_base_cost_is_automatic_and_fixed_through_resale(
     assert inventory["base_cost_usd"] == expected
     item_url = f"/api/v1/inventory/items/{inventory['id']}"
     cashier = await headers_for(test_session_factory, "cashier")
-    assert (await client.get(item_url, headers=cashier)).json()["base_cost_usd"] == expected
+    item_detail = (await client.get(f"{item_url}/sale-cost", headers=cashier)).json()
+    assert item_detail["base_cost_usd"] == expected
+    assert item_detail["base_gold_24k"] is None
+    assert Decimal(item_detail["base_making_usd"]) == Decimal("7.777") * Decimal(making)
     sale = await client.post(
         "/api/v1/sales/item",
         json={

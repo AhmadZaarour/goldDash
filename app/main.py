@@ -20,7 +20,7 @@ def create_app(config: Settings | None = None) -> FastAPI:
         CORSMiddleware,
         allow_origins=config.cors_origins,
         allow_credentials=False,
-        allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
+        allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Business-Unit"],
         expose_headers=["X-Total-Count", "X-Limit", "X-Offset"],
     )
@@ -34,7 +34,7 @@ def create_app(config: Settings | None = None) -> FastAPI:
             unit == "legacy"
             and request.method not in {"GET", "HEAD", "OPTIONS"}
             and not request.url.path.startswith(
-                ("/api/v1/auth/", "/api/v1/operations/legacy/assign")
+                ("/api/v1/auth/", "/api/v1/admin/data/", "/api/v1/operations/legacy/assign")
             )
         ):
             return JSONResponse(

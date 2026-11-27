@@ -226,3 +226,20 @@ async def test_factory_bulk_entries_use_the_factory_buying_adjustment(client, te
     assert Decimal(response.json()["ounce_adjustment_usd"]) == -20
     assert Decimal(response.json()["paid_usd"]) == 0
     assert (await client.get(f"/api/v1/purchases/{response.json()['id']}")).status_code == 404
+
+
+async def test_manual_quote_drives_trade_and_preserves_customer_adjustments(
+    client, test_session_factory
+):
+    shop = await setup_shop(client, test_session_factory)
+    await save(client, "-40", "20")
+    mode = await client.put("/api/v1/gold-price/quote-mode", json={"manual_ounce_usd": "4000"})
+    assert mode.status_code == 200, mode.text
+    assert Decimal(mode.json()["buy_adjustment_usd"]) == -40
+    assert Decimal(mode.json()["sell_adjustment_usd"]) == 20
+    changed = await save(client, "-50", "20")
+    assert Decimal(changed["manual_ounce_usd"]) == 4000
+    trade = await purchase_bulk(client, shop)
+    assert trade.status_code == 201, trade.text
+    assert Decimal(trade.json()["market_ounce_usd"]) == 4000
+    assert Decimal(trade.json()["applied_ounce_usd"]) == 3950

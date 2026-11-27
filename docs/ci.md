@@ -50,7 +50,7 @@ same-origin routing.
    For direct pushes to `test`, the later deployment uses CI as its gate. The
    workflow provides the status; adding the file does not change repository rules
    automatically.
-3. When Railway/Vercel staging is ready, configure deployments to wait for CI on
+3. When staging hosting is ready, configure deployments to wait for CI on
    the exact commit being deployed. Disable any independent deployment trigger
    that could publish a commit before its checks finish. Release migrations run
    once against staging during deployment, separately from CI's test migrations.

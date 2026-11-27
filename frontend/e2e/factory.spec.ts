@@ -300,7 +300,7 @@ test("showroom registers received weight as individual pieces with photo input",
       expect(route.request().headers()["content-type"]).toBe("image/jpeg");
       const uploaded = route.request().postDataBuffer()!;
       expect(uploaded.subarray(0, 2).toString("hex")).toBe("ffd8");
-      expect(uploaded.length).toBeLessThanOrEqual(4 * 1024 * 1024);
+      expect(uploaded.length).toBeLessThanOrEqual(10 * 1024 * 1024);
       await route.fulfill({
         status: 201,
         json: {

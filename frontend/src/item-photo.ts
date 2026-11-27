@@ -1,5 +1,5 @@
-// Keep camera uploads below Vercel's 4.5 MB request limit on every photo input.
-const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
+// Match the backend photo limit while resizing camera uploads before sending.
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 
 export async function resizePhoto(file: File): Promise<Blob> {
   const bitmap = await createImageBitmap(file, {

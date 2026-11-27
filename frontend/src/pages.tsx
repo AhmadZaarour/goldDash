@@ -615,11 +615,6 @@ export function Inventory() {
               { key: "product_name", label: "Product" },
               { key: "weight", label: "Weight (g)" },
               {
-                key: "base_cost_usd",
-                label: "Base cost (USD)",
-                render: (r) => <bdi>${money(r.base_cost_usd)}</bdi>,
-              },
-              {
                 key: "status",
                 label: "Status",
                 render: (r) => <Badge value={r.status} />,

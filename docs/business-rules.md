@@ -410,7 +410,7 @@ to cents. This calculated amount is a pricing reference and is never saved.
 The cashier enters the final selling price.
 `GET /api/v1/inventory/items/{id}/sale-cost` supplies the calculation inputs.
 
-Inventory lists and details retain the acquisition-cost reference in
+The inventory item detail retains the acquisition-cost reference in
 `base_cost_usd`. Older purchases without an acquisition snapshot use
 physical weight × (purchase gram price + making rate), rounded to cents half up.
 Accounting and profit reports continue to use their existing saved amounts and

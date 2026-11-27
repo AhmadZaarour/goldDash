@@ -314,7 +314,7 @@ test("development reset requires exact confirmation and refreshes dashboard", as
   ).toBeVisible();
 });
 
-test("piece cost reference in inventory and customer checkout", async ({
+test("inventory table omits base cost and checkout updates it live", async ({
   page,
 }) => {
   await api(page, "cashier");
@@ -343,7 +343,14 @@ test("piece cost reference in inventory and customer checkout", async ({
   });
   await login(page);
   await navigate(page, "Inventory");
-  await expect(page.getByText("$165.00", { exact: true })).toBeVisible();
+  const inventory = page.getByRole("table");
+  await expect(
+    inventory.getByText("Classic gold ring", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    inventory.getByText("Base cost (USD)", { exact: true }),
+  ).toHaveCount(0);
+  await expect(inventory.getByText("$165.00", { exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "View", exact: true }).click();
   let dialog = page.getByRole("dialog");
   let reference = dialog.getByRole("region", {

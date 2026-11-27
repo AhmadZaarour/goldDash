@@ -1,7 +1,6 @@
-"""Authenticated item photos with local or private object storage."""
+"""Authenticated item photos persisted in local storage."""
 
 from fastapi import APIRouter, Request, Response
-from fastapi.responses import FileResponse
 
 from app.api.v1.inventory_operations import Database
 from app.core.authorization import CashierUser

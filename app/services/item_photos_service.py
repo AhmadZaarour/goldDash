@@ -1,7 +1,6 @@
 import asyncio
 import io
 import logging
-import os
 import re
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
@@ -21,7 +20,6 @@ from app.models.user import User
 from app.services.photo_storage import delete_photo, read_photo, write_photo
 
 LIMIT = 10 * 1024 * 1024
-VERCEL_LIMIT = 4 * 1024 * 1024
 logger = logging.getLogger(__name__)
 
 
@@ -42,12 +40,11 @@ def normalize_photo(data: bytes) -> bytes:
 
 
 async def receive_photo(request: Request) -> str:
-    limit = VERCEL_LIMIT if os.environ.get("VERCEL") == "1" else LIMIT
     data = bytearray()
     async for chunk in request.stream():
         data.extend(chunk)
-        if len(data) > limit:
-            raise HTTPException(413, f"Photo must be smaller than {limit // (1024 * 1024)} MB")
+        if len(data) > LIMIT:
+            raise HTTPException(413, "Photo must be smaller than 10 MB")
     normalized = await asyncio.to_thread(normalize_photo, bytes(data))
     filename = uuid4().hex + ".jpg"
     await write_photo(filename, normalized)

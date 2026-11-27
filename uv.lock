@@ -374,7 +374,6 @@ dependencies = [
     { name = "redis" },
     { name = "sqlalchemy" },
     { name = "uvicorn", extra = ["standard"] },
-    { name = "vercel-blob" },
 ]
 
 [package.dev-dependencies]
@@ -405,7 +404,6 @@ requires-dist = [
     { name = "redis", specifier = ">=6.0,<7.0" },
     { name = "sqlalchemy", specifier = ">=2.0,<3.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.35,<1.0" },
-    { name = "vercel-blob", specifier = ">=0.6,<0.7" },
 ]
 
 [package.metadata.requires-dev]
@@ -466,19 +464,6 @@ wheels = [
 ]
 
 [[package]]
-name = "httpcore2"
-version = "2.16.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "h11" },
-    { name = "truststore" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/c0/61/afa9d6b7452f9eca73f73d45324eb0bb52f098fd5e6049bf6b8263be9b4e/httpcore2-2.16.0.tar.gz", hash = "sha256:c72cd0413563b17e1cd8354677dff887466f8ec2551679759e93126534428643", size = 69886, upload-time = "2026-10-21T07:09:45.31Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/af/c2/ce417c397afa5181f0e3c6ff01a4d01639414e1adef08730d97571297151/httpcore2-2.16.0-py3-none-any.whl", hash = "sha256:5c4358319f2602d984ad93182c9fee5160f22e9da7babdda870a5e7c4e2dc34f", size = 85070, upload-time = "2026-10-21T07:09:42.802Z" },
-]
-
-[[package]]
 name = "httptools"
 version = "0.8.0"
 source = { registry = "https://pypi.org/simple" }
@@ -513,32 +498,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/b1/df/48c586a5fe32a0f01324ee087459e112ebb7224f646c0b5023f5e79e9956/httpx-0.28.1.tar.gz", hash = "sha256:75e98c5f16b0f35b567856f597f06ff2270a374470a5c2392242528e3e3e42fc", size = 141406, upload-time = "2024-12-06T15:37:23.222Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/2a/39/e50c7c3a983047577ee07d2a9e53faf5a69493943ec3f6a384bdc792deb2/httpx-0.28.1-py3-none-any.whl", hash = "sha256:d909fcccc110f8c7faf814ca82a9a4d816bc5a6dbfea25d6591d6985b8ba59ad", size = 73517, upload-time = "2024-12-06T15:37:21.509Z" },
-]
-
-[[package]]
-name = "httpx2"
-version = "2.16.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "anyio", marker = "sys_platform != 'emscripten'" },
-    { name = "httpcore2", marker = "sys_platform != 'emscripten'" },
-    { name = "httpx2-jsfetch", marker = "sys_platform == 'emscripten'" },
-    { name = "idna" },
-    { name = "truststore", marker = "sys_platform != 'emscripten'" },
-    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/43/73/5ca2cedf5e4e50423d1c258877865a6b62793633b561c58499f8aeb33b7e/httpx2-2.16.0.tar.gz", hash = "sha256:0d54c98128e8f2ff7fbbde0fca8c359e5f032edeaaaac443cdb7f31f685bcd7f", size = 103116, upload-time = "2026-10-21T07:09:46.348Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/7b/3d/2e4bc4fd1ef9770871669adb348d612a6e4786b303a23f9935b81c48dd60/httpx2-2.16.0-py3-none-any.whl", hash = "sha256:fd2c5d7909e8d86fe92d53020c310ca0e4e431b838c207c5754b9bbf0308d49a", size = 97880, upload-time = "2026-10-21T07:09:44.01Z" },
-]
-
-[[package]]
-name = "httpx2-jsfetch"
-version = "1.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/cd/c4/0e5636363151a2a1795e0a77617168b9ca438e1748ec05fc9b5687f93d64/httpx2_jsfetch-1.0.tar.gz", hash = "sha256:70a0e3eabfef7cce5ad9c629f7d01ca05e418f586646f4ddf14782e4c1454c60", size = 6872, upload-time = "2026-08-07T00:13:07.492Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/9b/43/832f631d32e4f1211caa2ba368317739fe71f0b8530e4c9d15dc454bac2a/httpx2_jsfetch-1.0-py3-none-any.whl", hash = "sha256:cb916b707601e69a07721aabc8f3f6659be3a6893bc1ff5c6f9e02241df2da32", size = 6382, upload-time = "2026-08-07T00:13:06.567Z" },
 ]
 
 [[package]]
@@ -1165,15 +1124,6 @@ wheels = [
 ]
 
 [[package]]
-name = "truststore"
-version = "0.10.5"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/ee/9f/c5201d42a484c061e528825fc8e2d565f5abd50a4ced6fb7d29c4ec99b2b/truststore-0.10.5.tar.gz", hash = "sha256:30d36967ccaded5cbb38d602c433f53600036c79d502f4533a49b60a03bbefcd", size = 28091, upload-time = "2026-10-12T22:27:31.808Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/51/e9/3a7820be2bb0fe53b6bc9c3be26d3d1158004e4c3ab953aa6840b955b1e9/truststore-0.10.5-py3-none-any.whl", hash = "sha256:9aaaedaefaf06d8b206278cf8b5012bc897f485a874503501e12d776df78951c", size = 19017, upload-time = "2026-10-12T22:27:30.377Z" },
-]
-
-[[package]]
 name = "typing-extensions"
 version = "4.16.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1256,58 +1206,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/15/c0/0be24758891ef825f2065cd5db8741aaddabe3e248ee6acc5e8a80f04005/uvloop-0.22.1-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:0530a5fbad9c9e4ee3f2b33b148c6a64d47bbad8000ea63704fa8260f4cf728e", size = 4366890, upload-time = "2025-10-16T22:16:40.547Z" },
     { url = "https://files.pythonhosted.org/packages/d2/53/8369e5219a5855869bcee5f4d317f6da0e2c669aecf0ef7d371e3d084449/uvloop-0.22.1-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:bc5ef13bbc10b5335792360623cc378d52d7e62c2de64660616478c32cd0598e", size = 4119472, upload-time = "2025-10-16T22:16:41.694Z" },
     { url = "https://files.pythonhosted.org/packages/f8/ba/d69adbe699b768f6b29a5eec7b47dd610bd17a69de51b251126a801369ea/uvloop-0.22.1-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:1f38ec5e3f18c8a10ded09742f7fb8de0108796eb673f30ce7762ce1b8550cad", size = 4239051, upload-time = "2025-10-16T22:16:43.224Z" },
-]
-
-[[package]]
-name = "vercel-blob"
-version = "0.6.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "anyio" },
-    { name = "httpx2" },
-    { name = "pydantic" },
-    { name = "vercel-internal-core" },
-    { name = "vercel-oidc" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/b2/65/18dec10820f6b20d39a37c6477157abec78660c0f12371770797f4e1795c/vercel_blob-0.6.0.tar.gz", hash = "sha256:dd650791c08fdbcde0e524ee05a8241fc969ac2033b922941a7c3b5fbdaa75b0", size = 31877, upload-time = "2026-11-13T19:10:20.309Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/c4/f2/f847cdf95575fbf3a88b0ce4082c3ea6cafabb80bf577d08bddc0f972261/vercel_blob-0.6.0-py3-none-any.whl", hash = "sha256:30f01402b52af9f5fd7a00c2da155b0ec465c36854512d51c97871859963e2c7", size = 36154, upload-time = "2026-11-13T19:10:19.36Z" },
-]
-
-[[package]]
-name = "vercel-headers"
-version = "0.8.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/29/94/016d2de42b653d7100d6de68f4711402660ba439d553a308d3c8e553f7ef/vercel_headers-0.8.0.tar.gz", hash = "sha256:6cf3aa1cb34772c3c708db80dba86127dfffb683158459ea1ec193c3edd2d9c1", size = 6091, upload-time = "2026-11-13T19:10:04.117Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/81/63/129feb85d027ba780ba5ac65ee0e74dda5953f27cd4adc94ec18b3d34052/vercel_headers-0.8.0-py3-none-any.whl", hash = "sha256:b565d966a4aff1a85410eed5f47e1edfa4c83a6d6b1870477d43bd78d16f16d5", size = 3920, upload-time = "2026-11-13T19:10:03.17Z" },
-]
-
-[[package]]
-name = "vercel-internal-core"
-version = "0.3.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "anyio" },
-    { name = "httpx2" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/3a/70/a83748e8c77715af566c3726bb43863c512c7964413d90f4ee8fdd28f0a2/vercel_internal_core-0.3.0.tar.gz", hash = "sha256:96e1c107e85b8629e56ef8343602c831e85961c683baa076397815a26f275846", size = 20662, upload-time = "2026-11-13T19:10:10.9Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/00/1d/dadf9c918597a9c8796b56fee1726affa9b5639c096b9519128be71fc495/vercel_internal_core-0.3.0-py3-none-any.whl", hash = "sha256:184f9cb3009490c8bb5069aa99d39b952ece5b157fd50b2ec19e7ac72e654735", size = 24464, upload-time = "2026-11-13T19:10:10.021Z" },
-]
-
-[[package]]
-name = "vercel-oidc"
-version = "0.12.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "anyio" },
-    { name = "httpx2" },
-    { name = "vercel-headers" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/3b/3d/34c4b523533d66c3eba95c9901d9b8634b62106093953d35acd727bef768/vercel_oidc-0.12.0.tar.gz", hash = "sha256:cf0437dd010acc147c8a8572cd22590d579eeec9d335e0717fcf32e377e900b7", size = 17064, upload-time = "2026-11-13T19:10:15.64Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/98/51/4771578d47e97ac1ef67b8e592fbb1cad615482571c75a7dbe48536a83b9/vercel_oidc-0.12.0-py3-none-any.whl", hash = "sha256:727e0af59f988b96964a1d5fcbde314b6ef8c139aa976113917f478e6033e660", size = 17044, upload-time = "2026-11-13T19:10:14.709Z" },
 ]
 
 [[package]]

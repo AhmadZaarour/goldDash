@@ -73,17 +73,14 @@ See [CI setup and reports](docs/ci.md) for activation and debugging.
 
 Printing, supplier invoice return documents, and bank workflows remain separate
 integrations. Shop cash expenses and withdrawals are supported. Item photos can
-use authenticated local/private Blob uploads or an existing external image URL.
-
-For a Vercel test deployment with Neon, Upstash and private Blob storage, follow
-[the Vercel deployment guide](docs/vercel-deployment.md).
+use authenticated local uploads or an existing external image URL.
 
 ## Frontend
 
 The bilingual English/Arabic React frontend is in [frontend](frontend/README.md).
 Start the API, then run `npm ci && npm run dev` in `frontend/`. Printer integration
-remains deferred. Phone photos use authenticated local storage by default; mount
-and back up `ITEM_IMAGE_DIR` on a VPS. On Vercel they use private Blob storage.
+remains deferred. Phone photos use authenticated local storage; mount and back up
+`ITEM_IMAGE_DIR` before deployment.
 
 ## Development data reset
 

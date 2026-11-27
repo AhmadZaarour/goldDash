@@ -1,9 +1,8 @@
-import os
 from functools import lru_cache
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import Field, field_validator
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -25,10 +24,7 @@ class Settings(BaseSettings):
         return value
 
     item_image_dir: str = "var/item-images"
-    item_image_storage: Literal["local", "vercel_blob"] = Field(
-        default_factory=lambda: "vercel_blob" if os.environ.get("VERCEL") == "1" else "local"
-    )
-    database_pooling: bool = Field(default_factory=lambda: os.environ.get("VERCEL") != "1")
+    database_pooling: bool = True
     cors_origins: list[str] = []
 
     database_url: str

@@ -52,9 +52,16 @@ class PurchaseStockCreate(BaseModel):
 
 
 class PurchaseUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
     invoice_number: str | None = Field(default=None, max_length=50)
     notes: str | None = Field(default=None, max_length=200)
-    location_id: int | None = None
+
+
+class PurchaseVoid(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    reason: str = Field(min_length=1, max_length=500)
 
 
 class PurchaseItemUpdate(BaseModel):
@@ -105,6 +112,9 @@ class PurchaseResponse(BaseModel):
     total_gold_charge_grams: Decimal | None
     gold_debt_24k: Decimal | None
     paid_usd: Decimal | None
+    voided_at: datetime | None = None
+    voided_by: int | None = None
+    void_reason: str | None = None
 
 
 class PurchaseItemResponse(BaseModel):

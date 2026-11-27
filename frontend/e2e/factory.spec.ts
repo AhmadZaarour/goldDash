@@ -1,6 +1,108 @@
 import { test, expect } from "@playwright/test";
 import { api, login, navigate } from "./helpers";
 
+test("admins correct production steps and reverse internal transactions from their tables", async ({
+  page,
+}) => {
+  await api(page);
+  const stepTime = "2026-01-01T10:00:00Z";
+  const batch = {
+    id: 1,
+    tracking_mode: "weight",
+    status: "in_progress",
+    reference: "Batch A",
+    details: {
+      inputs: [],
+      steps: [
+        { name: "Polishing", created_at: stepTime, outputs: [], scrap: [] },
+      ],
+    },
+  };
+  const invoice = { id: 2, note: "Original note", is_reversed: false };
+  await page.route("**/api/v1/operations/**", async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    if (path.endsWith("/production")) return route.fulfill({ json: [batch] });
+    if (path.endsWith("/production/1")) return route.fulfill({ json: batch });
+    if (path.endsWith("/steps/1/reverse")) {
+      expect(request.headers()["idempotency-key"]).toBeTruthy();
+      expect(request.postDataJSON()).toEqual({
+        note: "Remeasure",
+        expected_created_at: stepTime,
+      });
+      batch.details.steps = [];
+      return route.fulfill({ json: { id: 1 } });
+    }
+    if (path.endsWith("/internal-invoices"))
+      return route.fulfill({ json: [invoice] });
+    if (path.endsWith("/internal-invoices/2") && request.method() === "PATCH") {
+      invoice.note = request.postDataJSON().note;
+      return route.fulfill({ json: { id: 2 } });
+    }
+    if (path.endsWith("/internal-invoices/2/reverse")) {
+      expect(request.headers()["idempotency-key"]).toBeTruthy();
+      expect(request.postDataJSON()).toEqual({ note: "Entered twice" });
+      invoice.is_reversed = true;
+      return route.fulfill({ json: { id: 2 } });
+    }
+    return route.fallback();
+  });
+  await login(page);
+  await page.getByLabel("Workspace", { exact: true }).selectOption("factory");
+  await navigate(page, "Production");
+  await page.getByRole("button", { name: "View", exact: true }).click();
+  const production = page.getByRole("dialog", {
+    name: "Production batch",
+    exact: true,
+  });
+  const lastStep = production
+    .locator("section.panel")
+    .filter({
+      has: page.getByRole("heading", { name: "1. Polishing", exact: true }),
+    });
+  const reverseStep = lastStep.getByRole("button", {
+    name: "Reverse step",
+    exact: true,
+  });
+  await reverseStep.click();
+  await lastStep
+    .getByRole("textbox", { name: "Reason / notes", exact: true })
+    .fill("Remeasure");
+  await reverseStep.click();
+  await expect(
+    production.getByRole("heading", { name: /Polishing/ }),
+  ).toHaveCount(0);
+  await production.getByRole("button", { name: "Close", exact: true }).click();
+
+  await navigate(page, "Factory / Showroom account");
+  const invoices = page.locator("section").filter({
+    has: page.getByRole("heading", { name: "Internal invoices", exact: true }),
+  });
+  await invoices.getByRole("button", { name: "Edit", exact: true }).click();
+  const edit = page.getByRole("dialog", { name: "Edit note", exact: true });
+  await expect(
+    edit.getByRole("textbox", { name: "Reason / notes" }),
+  ).toHaveValue("Original note");
+  await edit
+    .getByRole("textbox", { name: "Reason / notes" })
+    .fill("Corrected note");
+  await edit.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(edit).toHaveCount(0);
+  expect(invoice.note).toBe("Corrected note");
+  await invoices.getByRole("button", { name: "Reverse", exact: true }).click();
+  const reverse = page.getByRole("dialog", {
+    name: "Reverse transaction",
+    exact: true,
+  });
+  await reverse
+    .getByRole("textbox", { name: "Reason / notes" })
+    .fill("Entered twice");
+  await reverse.getByRole("button", { name: "Reverse", exact: true }).click();
+  await expect(
+    invoices.getByRole("button", { name: "Reverse", exact: true }),
+  ).toHaveCount(0);
+});
+
 test("factory batch reserves input, records mixed-purity steps and releases finished weight", async ({
   page,
 }) => {
@@ -181,7 +283,7 @@ test("supplier invoice uses purity totals and per-gram making instead of piece i
 test("showroom registers received weight as individual pieces with photo input", async ({
   page,
 }) => {
-  await api(page, "employee");
+  await api(page);
   let pending = [
     { id: 1, invoice_id: 17, purity_id: 1, remaining_weight: "10" },
   ];
@@ -195,10 +297,6 @@ test("showroom registers received weight as individual pieces with photo input",
     async (route) => {
       expect(route.request().headers()["x-business-unit"]).toBe("showroom");
       expect(route.request().method()).toBe("POST");
-      expect(route.request().headers()["content-type"]).toBe("image/jpeg");
-      const uploaded = route.request().postDataBuffer()!;
-      expect(uploaded.subarray(0, 2).toString("hex")).toBe("ffd8");
-      expect(uploaded.length).toBeLessThanOrEqual(4 * 1024 * 1024);
       await route.fulfill({
         status: 201,
         json: {
@@ -245,7 +343,7 @@ test("showroom registers received weight as individual pieces with photo input",
     name: "received-piece.png",
     mimeType: "image/png",
     buffer: Buffer.from(
-      "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGM8sTSCgYGBiYGBgYGBAQAV1gHJGLdvLgAAAABJRU5ErkJggg==",
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jR2kAAAAASUVORK5CYII=",
       "base64",
     ),
   });

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.authorization import AdminUser
 from app.core.database import get_db
 from app.core.dependencies import require_role
 from app.core.pagination import paginate
@@ -15,6 +16,7 @@ from app.services.categories_service import (
     get_category,
     update_category,
 )
+from app.services.record_removal import remove_unused_record
 
 router = APIRouter(
     prefix="/categories",
@@ -115,3 +117,13 @@ async def list_records(
     if q:
         statement = statement.where(Category.name.icontains(q, autoescape=True))
     return await paginate(db, statement, response, limit, offset)
+
+
+@router.delete("/{record_id}", status_code=204)
+async def delete_record(
+    record_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    user: AdminUser,
+) -> Response:
+    await remove_unused_record(db, Category, record_id, "Category")
+    return Response(status_code=204)

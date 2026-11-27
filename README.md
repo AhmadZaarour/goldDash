@@ -55,11 +55,9 @@ See [CI setup and reports](docs/ci.md) for activation and debugging.
 
 1. Use a managed/restricted PostgreSQL and Redis service or an equivalent private
    deployment. The provided Compose file is for development.
-2. Supply DATABASE_URL, REDIS_URL, a strong
+2. Supply DATABASE_URL, TEST_DATABASE_URL, REDIS_URL, TEST_REDIS_URL, a strong
    SECRET_KEY, DEBUG=false, and the frontend's exact CORS_ORIGINS through secure
    environment settings. Do not commit .env or production credentials.
-   TEST_DATABASE_URL and TEST_REDIS_URL are only for isolated automated tests;
-   they are not required by the deployed API.
 3. Take a database backup and verify restoration before upgrades. Run
    `uv run alembic upgrade head` once as the release migration step, then
    `uv run alembic check`. Never use create_all for deployment.
@@ -73,17 +71,14 @@ See [CI setup and reports](docs/ci.md) for activation and debugging.
 
 Printing, supplier invoice return documents, and bank workflows remain separate
 integrations. Shop cash expenses and withdrawals are supported. Item photos can
-use authenticated local/private Blob uploads or an existing external image URL.
-
-For a Vercel test deployment with Neon, Upstash and private Blob storage, follow
-[the Vercel deployment guide](docs/vercel-deployment.md).
+use authenticated local uploads or an existing external image URL.
 
 ## Frontend
 
 The bilingual English/Arabic React frontend is in [frontend](frontend/README.md).
 Start the API, then run `npm ci && npm run dev` in `frontend/`. Printer integration
-remains deferred. Phone photos use authenticated local storage by default; mount
-and back up `ITEM_IMAGE_DIR` on a VPS. On Vercel they use private Blob storage.
+remains deferred. Phone photos use authenticated local storage; mount and back up
+`ITEM_IMAGE_DIR` before deployment.
 
 ## Development data reset
 
@@ -113,7 +108,9 @@ business data. This feature does not reset PostgreSQL/Redis services or delete
 The dashboard uses authenticated `/api/v1/gold-price`; allow backend HTTPS egress
 to `api.gold-api.com`. Redis coordinates a 30-second quote cache and failure
 cooldown across workers. Provider/cache failures show stale or unavailable prices
-without bypassing the shared cache. Quotes never replace agreed transaction rates.
+without bypassing the shared cache. Admins can use **Gold quote settings** on
+Overview to set a manual USD-per-ounce quote or resume live pricing for the
+current workspace.
 
 Apply `uv run alembic upgrade head` before starting this version. This migrates
 purity values to exact decimals, records historical 24K-equivalent debt snapshots,
@@ -137,8 +134,9 @@ Apply migrations before running this version (`uv run alembic upgrade head`).
 
 Automatic per-gram market rates now cover customer sales, customer bulk purchases
 (including opening stock) and supplier bulk sales as well as supplier item invoices.
-Actual payment/final selling totals stay manual. All new trades require a fresh
-shared quote; completed records retain their prices. Run `uv run alembic upgrade head`
+Actual payment and final selling totals stay manual. New trades use a fresh
+live quote or the saved manual quote. Completed records retain their prices.
+Run `uv run alembic upgrade head`
 to add the bulk market-rate snapshots and sale quote timestamps before starting.
 
 Item purchase details now distinguish physical grams from `gold_charge_24k`.

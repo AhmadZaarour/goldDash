@@ -18,6 +18,7 @@ from app.services.products_service import (
     get_product,
     update_product,
 )
+from app.services.record_removal import remove_unused_record
 
 router = APIRouter(
     prefix="/products",
@@ -125,3 +126,13 @@ async def update_product_endpoint(
         ) from exc
 
     return new_product
+
+
+@router.delete("/{record_id}", status_code=204)
+async def delete_record(
+    record_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    user: AdminUser,
+) -> Response:
+    await remove_unused_record(db, Product, record_id, "Product")
+    return Response(status_code=204)

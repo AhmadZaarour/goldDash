@@ -7,19 +7,26 @@ All business reads require a bearer token. Administrators create employee and
 cashier accounts using `POST /api/v1/auth/register`; bootstrap administrators with
 `python -m app.cli`. Anonymous signup is disabled.
 
+Sign in with your username or email. The login API accepts one of `identifier`,
+`username`, or `email` alongside the password. The combined `identifier` field
+gives a matching email priority. Use the explicit `username` field for an exact
+username match.
+
 | Operation | Roles |
 | --- | --- |
-| Read catalog, inventory, supplier balances/history | All authenticated users |
+| Read catalog, inventory, supplier balances/history | Cashier or admin |
 | Edit catalog, suppliers, locations, purities and products | Admin |
 | Create purchases, bulk sales to suppliers, supplier settlements/reversals | Admin |
 | Customer sales, item returns and walk-in bulk purchases | Cashier or admin |
-| Item/stock transfers, images and service intake/status | Employee or admin |
+| Item/stock transfers and Showroom supply receipt | Admin |
+| Inventory photos | Cashier or admin |
+| Factory production and service intake/status | Employee or admin |
 | Service checkout / service payment history | Cashier or admin |
 | Service lookup | Any signed-in staff member |
 | Read cash entries and totals | Cashier or admin |
 | Record/read cash reconciliations | Admin |
 
-Customer creation/updates are available to authenticated staff. Purchase/sale
+Customer creation and updates are available to cashiers and admins. Purchase/sale
 actors and creation timestamps come from the server, ignoring client values.
 Inactive accounts cannot log in, refresh, or use existing access tokens. Refresh
 tokens rotate atomically; logout revokes the refresh token. Access tokens expire
@@ -28,8 +35,9 @@ according to ACCESS_TOKEN_EXPIRE_MINUTES and are not revoked by logout alone.
 ## Gold prices, purities and supplier obligations
 
 Authenticated `GET /api/v1/gold-price` returns USD per ounce and per gram for
-24K, 21K and 18K, `fetched_at`, provider `source_updated_at`, and `stale`.
-The backend alone requests `https://api.gold-api.com/price/XAU`. Redis shares a
+24K, 21K and 18K, `fetched_at`, provider `source_updated_at`, `stale`, and
+`quote_mode`. In live mode the backend requests
+`https://api.gold-api.com/price/XAU`. Redis shares a
 30-second successful-quote cache and upstream-attempt cooldown across workers.
 Concurrent refreshes coalesce; failures also observe the cooldown. The last
 successful quote is retained and explicitly marked stale on failure. A first
@@ -53,7 +61,7 @@ Changing catalog settings does not recalculate completed transactions.
 `POST /api/v1/purchases/item` is admin-only and requires `Idempotency-Key`.
 Each line contains product, physical weight, making charge in USD per physical gram and optional
 external image URL or staged `photo_token`. Purchase gold price is server-calculated,
-not an input: one fresh cached live quote prices the entire invoice. Each line
+not an input. One active quote prices the entire invoice. Each line
 uses USD per 24K gram × its purchase valuation factor, rounded to four decimal
 places half up. The invoice stores `gold_quote_at` and each piece retains its
 calculated `gold_price_per_gram`. Stale/unavailable quotes return 503 with no
@@ -79,9 +87,8 @@ For example, 5g of 21K plus 2.5g of 18K records 4.397g and 1.884g of 24K-equival
 charge, totaling 6.281g. Physical weights remain 5g and 2.5g; the 21K piece must
 never be relabeled as a 5.25g physical charge.
 
-The pricing-reference base cost retains the existing formula: physical weight ×
-(purchase gram price + making charge). No 24K-equivalent grams are multiplied by
-a physical 18K/21K gram price. New sale-time reporting similarly uses the recorded
+The acquisition cost uses physical weight × (purchase gram price + making charge).
+Sale-time pricing uses the current quote. New sale-time reporting uses the recorded
 physical charge and matching sale gram rate. Historical prices, original charge
 fields, cash and ledger entries remain unchanged. The migration adds explicit 24K
 charges to prior invoices only where complete saved line conversion factors and
@@ -159,7 +166,7 @@ supplier bulk invoices remain readable through the existing purchase/stock GETs.
 ### Photos while purchasing
 
 Admin/cashier `POST /api/v1/purchases/photos` accepts raw JPEG/PNG/WebP bytes
-with normalization and a 10 MiB limit locally (4 MiB on Vercel). It returns a `token` and
+using the existing 10 MB limit and normalization. It returns a `token` and
 an authenticated preview URL. Tokens belong to the uploader and expire after
 24 hours. Include a token on its purchase line; the transaction claims it once
 and assigns its photo to the inventory item. Purchase replay retains the same
@@ -195,7 +202,7 @@ unsupported; they must not be inferred from sales totals.
 
 ## Inventory, images, returns and transfers
 
-The backend generates item barcodes: `GI` plus 16 uppercase hexadecimal characters.
+New item barcodes use `GI` followed by eight uppercase Crockford Base32 characters.
 The database enforces uniqueness and generation retries collisions. Legacy barcode
 input in purchase requests is ignored. Existing codes are preserved through image
 updates, transfers, returns and resale. Rendering and printing labels belong to
@@ -205,13 +212,10 @@ Individual purchase lines accept optional HTTP(S) `image_url` up to 2,048 charac
 `PATCH /api/v1/inventory/items/{id}/image` accepts `{"image_url": "https://..."}`
 or `{"image_url": null}`. External URLs are stored, not fetched. Cashiers/admins can instead upload a phone
 photo with `POST /api/v1/inventory/items/{id}/photo` (raw JPEG/PNG/WebP bytes,
-maximum 10 MiB locally, 4 MiB on Vercel). The backend normalizes it to JPEG,
-removes metadata, resizes it and stores it in ITEM_IMAGE_DIR locally or private
-Vercel Blob storage. `/api/v1/media/items/{filename}` requires a bearer token and
-the owning workspace; an unclaimed staged upload also requires its creator and an
-unexpired token. The frontend displays these through authenticated blob requests.
-All camera inputs resize/compress uploads below 4 MiB. Configure persistent storage
-and image backups for deployment; see [Vercel setup](vercel-deployment.md).
+maximum 10 MB). The backend normalizes it to JPEG, removes metadata, resizes it
+and stores it in ITEM_IMAGE_DIR. `/api/v1/media/items/{filename}` requires a bearer
+token; the frontend displays these through authenticated blob requests. Persistent
+storage and image backups must be configured for deployment.
 
 Inventory reads:
 
@@ -397,25 +401,25 @@ activity; it does not lock out other browser sessions after completion.
 
 ## Barcoded piece base cost
 
-Inventory item list/detail responses include read-only `base_cost_usd`, calculated
-from the linked purchase line as `weight × (gold_price_per_gram + making_charge)`,
-rounded to cents half up. This retains the pricing-reference formula already on
-the test branch. It is separate from supplier debt and the monthly report's
-sale-time gold valuation.
+The customer sale form calculates each selected piece's base cost from the
+active customer selling quote and the piece's making charge. Supplier-purchased
+pieces use physical weight × the current gram rate for their purity, plus the
+piece's total making charge. Pieces received from production use their
+24K-equivalent weight and the current 24K gram rate. The form rounds the result
+to cents. This calculated amount is a pricing reference and is never saved.
+The cashier enters the final selling price.
+`GET /api/v1/inventory/items/{id}/sale-cost` supplies the calculation inputs.
 
-For example, a 10.000 g piece with a purchase gold price of $80/g and a making
-rate of $15/g has a $950.00 base cost under this formula. New inventory stores the
-acquisition cost snapshot; older pieces without a snapshot use the purchase-line formula.
-It remains tied to the original purchase across transfers, sales, returns and
-resale. Inventory lists/details and each selected customer-sale line show weight
-and base cost for pricing reference. The final selling price remains explicitly
-entered by the cashier. Monthly profit continues to use the sale-time gold
-valuation selected for that report; this purchase-cost label does not change it.
+The inventory item detail retains the acquisition-cost reference in
+`base_cost_usd`. Older purchases without an acquisition snapshot use
+physical weight × (purchase gram price + making rate), rounded to cents half up.
+Accounting and profit reports continue to use their existing saved amounts and
+the applicable valuation method.
 
 ## Live per-gram rates on every new trade
 
-All supported purchases and sales now use the same server-side market calculation.
-One fresh quote is used for an entire invoice, with USD per physical gram rounded
+All supported purchases and sales use the same server-side rate calculation.
+One active quote is used for an entire invoice, with USD per physical gram rounded
 to four decimal places, half up:
 
 | Purity | USD per gram |
@@ -461,9 +465,11 @@ Each request selects `X-Business-Unit: showroom` (default) or `factory`. Cash,
 stock quantities and carrying values, pieces, purchases, sales, expenses,
 reconciliations and external supplier accounts are owned by that workspace.
 Locations, contacts and product/purity catalogs remain shared. A location is a
-physical address; it does not determine ownership. Staff membership is assigned
-by an admin as Showroom, Factory or both. A workspace switch clears browser data
-before loading the selected workspace. Admins can review unassigned history.
+physical address. Workspace access follows the account role. Cashiers work in
+Showroom. Employees work in Factory and have access to Production, Servicing,
+and the location and purity lookups those screens need. Admins can work in
+either workspace and review unassigned history. A workspace switch clears
+browser data before loading the selected workspace.
 
 Showroom purchases supplier pieces individually, incurs gold debt in 24K-equivalent
 grams plus USD making charges, and sells pieces to customers. Factory creates
@@ -639,12 +645,15 @@ force. Staff explicitly save edits and cashiers explicitly submit payment after 
 ## Service intake and checkout
 
 Service intake accepts optional notes (200 characters maximum) and `in_progress`
-(default) or `finished` status. The server generates a unique `SV` barcode; no
-customer, barcode or price entry is required or accepted at intake. Creation uses
+(default) or `finished` status. New service barcodes use `SV` followed by eight
+uppercase Crockford Base32 characters. The database enforces uniqueness and
+generation retries collisions. Creation uses
 `Idempotency-Key`, so a lost response can be retried without creating another job.
 
-Admins/employees create and update jobs; all staff can look up jobs in their own
-workspace. Admins/cashiers collect payment through `POST /servicing/sales`, sending
+Admins create and update jobs in either workspace. Employees handle Factory jobs.
+Staff can look up jobs in the workspace their role allows. Cashiers collect
+payments for Showroom jobs. Admins can collect payments in both workspaces.
+Checkout uses `POST /servicing/sales`, sending
 barcode, active location and `cost` (the amount collected in USD, not an expense).
 The amount must be nonnegative and have at most two decimal places. No gold price
 is needed. A job must be finished and unpaid. Location and job locks serialize
@@ -682,12 +691,11 @@ New endpoints under `/api/v1/operations`:
 - `GET pending-receipts`: unregistered Showroom weight from factory supplies.
 - `POST weight-internal-invoices/{id}/receive`: create Showroom pieces/photos.
 - `POST weight-internal-invoices/{id}/photos`: stage a receipt photo for an
-  Employee/Admin in Showroom while that weight invoice still has a pending receipt.
-  Existing general staging and inventory-photo editing permissions remain unchanged.
+  admin in Showroom while that weight invoice still has a pending receipt.
 
-All writes use `Idempotency-Key`. Production is Employee/Admin; seeding, supplier
-sales and internal supply are Admin; Showroom receipt is Employee/Admin in the
-Showroom workspace. Existing production history/detail and specialized reversals
+All writes use `Idempotency-Key`. Employees and admins can run production.
+Admins handle seeding, supplier sales, internal supply, and Showroom receipts.
+Existing production history/detail and specialized reversals
 remain available. Earlier piece-creation/sale/supply routes are deprecated
 compatibility endpoints; current factory screens use the weight routes.
 
@@ -696,7 +704,7 @@ compatibility endpoints; current factory screens use the weight routes.
 
 Each workspace has independent **buying** and **selling** USD-per-ounce adjustments,
 both defaulting to zero. Admins edit them from **Customer price adjustments** on
-the live gold dashboard. Enter a positive amount to add to the market ounce or a
+the dashboard. Enter a positive amount to add to the active ounce quote or a
 negative amount to subtract. The server records the editor and update time.
 
 For customer gold sales, apply the selling adjustment; for walk-in customer bulk
@@ -731,6 +739,44 @@ settings does not bypass the upstream cooldown. `GET /api/v1/gold-price/settings
 reads the active workspace's settings, and admin-only `PUT` replaces both signed
 adjustments. Configuration can be edited without an available external quote.
 
-Apply migration `h12026prices` before using this version. Defaults are zero until
-explicitly saved. Downgrade refuses to discard saved settings or new customer price
-snapshots after activity.
+Admins can use **Gold quote settings** on Overview to enter a positive manual
+USD-per-ounce quote for the current workspace. Trades in that workspace use the
+saved quote until the admin switches back to live pricing. Customer buying and
+selling adjustments apply to either source. The manual quote remains usable
+regardless of its age. The admin-only `PUT /api/v1/gold-price/quote-mode` endpoint
+accepts `manual_ounce_usd` or `null` to resume live pricing.
+
+## Default location
+
+Admins set a shared default under **Default location** on Overview. New forms
+preselect it in Factory and Showroom. Users can choose a different location on
+individual entries. Stock transfers preselect the source. Internal payments
+preselect the current workspace's location. Choose the second location when a
+form requires one.
+
+## Admin corrections
+
+Admins make corrections from the screen that owns the record. Catalog,
+supplier and staff records can be deleted when no other record depends on
+them. Staff with linked history can be deactivated. An administrator
+can update another staff account's details and role.
+
+Financial and production corrections follow the associated workflow.
+
+- Purchases allow invoice-number and note corrections. A supplier invoice can be
+  voided while its original pieces are untouched. A bulk purchase can be voided
+  when its saved stock credit still matches the current balance. Voids retain the
+  original invoice and reverse its stock and financial effects.
+- Cash Drawer allows admins to correct standalone expenses, withdrawals and
+  reconciliations. A closed drawer period must be reopened before changing a
+  cash amount or removing a cash movement in that period. Servicing corrects a
+  payment and its cash entry together.
+- Factory / Showroom account invoices and payments allow note changes and
+  reversals. Factory production supports edits to references and notes. To
+  correct weights or costs, reverse the affected operation and record it again.
+  Only the latest step of an in-progress batch can be reversed individually.
+
+Run `uv run alembic upgrade head` before using this version. The purchase and
+reconciliation migrations add correction fields to existing records. Downgrade
+requires restoring a reviewed backup if purchases or reconciliations have
+already been voided.

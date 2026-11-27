@@ -1,9 +1,17 @@
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, StringConstraints, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    StringConstraints,
+    ValidationInfo,
+    field_validator,
+)
 
-from app.models.user import UserRole
+from app.models.user import UserRole, workspace_for_role
 
 Username = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=50)]
 
@@ -33,3 +41,9 @@ class UserResponse(BaseModel):
     workspace_access: str
     is_active: bool
     created_at: datetime
+
+    @field_validator("workspace_access")
+    @classmethod
+    def effective_workspace(cls, value: str, info: ValidationInfo) -> str:
+        role = info.data.get("role")
+        return workspace_for_role(role) if role is not None else value

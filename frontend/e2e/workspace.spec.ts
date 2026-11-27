@@ -40,7 +40,15 @@ test("cashier navigation does not expose admin or inventory write controls", asy
   page,
 }) => {
   await api(page, "cashier");
+  await page.addInitScript(() =>
+    sessionStorage.setItem("gold-workspace", "factory"),
+  );
+  const overview = page.waitForRequest((req) =>
+    req.url().endsWith("/api/v1/operations/overview"),
+  );
   await login(page);
+  expect((await overview).headers()["x-business-unit"]).toBe("showroom");
+  await expect(page.getByLabel("Workspace", { exact: true })).toHaveCount(0);
   await expect(
     page.getByRole("heading", { name: "Monthly profit", exact: true }),
   ).toHaveCount(0);
@@ -62,6 +70,35 @@ test("cashier navigation does not expose admin or inventory write controls", asy
   await page.goto("/staff");
   await expect(
     page.getByRole("heading", { name: "Overview", exact: true }),
+  ).toBeVisible();
+});
+
+test("employees enter Factory and can open only Production and Servicing", async ({
+  page,
+}) => {
+  await api(page, "employee");
+  await page.addInitScript(() =>
+    sessionStorage.setItem("gold-workspace", "showroom"),
+  );
+  const production = page.waitForRequest((req) =>
+    req.url().includes("/api/v1/operations/production?"),
+  );
+  await login(page, "Production");
+  expect((await production).headers()["x-business-unit"]).toBe("factory");
+  await expect(page.getByLabel("Workspace", { exact: true })).toHaveCount(0);
+  const menu = page.getByRole("button", { name: "Menu", exact: true });
+  if (await menu.isVisible()) await menu.click();
+  await expect(page.locator("nav").getByRole("link")).toHaveText([
+    "Servicing",
+    "Production",
+  ]);
+
+  await page.goto("/inventory");
+  await expect(page).toHaveURL(/\/production$/);
+  await navigate(page, "Servicing");
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { name: "Servicing", exact: true }),
   ).toBeVisible();
 });
 
@@ -277,13 +314,43 @@ test("development reset requires exact confirmation and refreshes dashboard", as
   ).toBeVisible();
 });
 
-test("piece cost reference in inventory and customer checkout", async ({
+test("inventory table omits base cost and checkout updates it live", async ({
   page,
-}, info) => {
+}) => {
   await api(page, "cashier");
+  await page.clock.install();
+  let gramPrice = "100";
+  await page.route("**/api/v1/gold-price", async (route) => {
+    const quote = {
+      ounce_usd: "3047.8",
+      gram_24k_usd: "98",
+      gram_21k_usd: "86.18",
+      gram_18k_usd: "73.87",
+      fetched_at: await page.evaluate(() => new Date().toISOString()),
+      stale: false,
+    };
+    await route.fulfill({
+      json: {
+        ...quote,
+        customer_sell: {
+          ...quote,
+          ounce_usd: String(Number(gramPrice) * 31.1),
+          gram_24k_usd: gramPrice,
+          available: true,
+        },
+      },
+    });
+  });
   await login(page);
   await navigate(page, "Inventory");
-  await expect(page.getByText("$165.00", { exact: true })).toBeVisible();
+  const inventory = page.getByRole("table");
+  await expect(
+    inventory.getByText("Classic gold ring", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    inventory.getByText("Base cost (USD)", { exact: true }),
+  ).toHaveCount(0);
+  await expect(inventory.getByText("$165.00", { exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "View", exact: true }).click();
   let dialog = page.getByRole("dialog");
   let reference = dialog.getByRole("region", {
@@ -304,7 +371,7 @@ test("piece cost reference in inventory and customer checkout", async ({
     name: "Piece cost reference",
     exact: true,
   });
-  await expect(reference.getByText("$165.00", { exact: true })).toBeVisible();
+  await expect(reference.getByText("$265.00", { exact: true })).toBeVisible();
   await expect(reference.getByText("2.500 g", { exact: true })).toBeVisible();
   await expect(
     dialog.getByLabel("Gold price / gram", { exact: true }),
@@ -312,13 +379,13 @@ test("piece cost reference in inventory and customer checkout", async ({
   await expect(
     dialog.getByLabel("Calculated gold price / gram", { exact: true }),
   ).toHaveText("100.0000");
-  await expect(
-    dialog.getByLabel("Final price (USD)", { exact: true }),
-  ).toHaveValue("");
-  await reference.scrollIntoViewIfNeeded();
-  await page.screenshot({
-    path: `test-results/${info.project.name}-piece-base-cost.png`,
-  });
+  const finalPrice = dialog.getByLabel("Final price (USD)", { exact: true });
+  await expect(finalPrice).toHaveValue("");
+  await finalPrice.fill("400");
+  gramPrice = "120";
+  await page.clock.fastForward(30_000);
+  await expect(reference.getByText("$315.00", { exact: true })).toBeVisible();
+  await expect(finalPrice).toHaveValue("400");
   await dialog.getByRole("button", { name: "Close", exact: true }).click();
   await page.getByRole("button", { name: "العربية", exact: true }).click();
   // Return to inventory to verify the bilingual label without submitting a sale.

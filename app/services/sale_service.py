@@ -22,7 +22,7 @@ from app.schemas.sales import (
     SaleStockCreate,
 )
 from app.services.customer_pricing import snapshot, trade_quote
-from app.services.gold_price import get_quote, price_per_gram, require_fresh_quote
+from app.services.gold_price import effective_quote, get_quote, price_per_gram, require_fresh_quote
 from app.services.inventory_service import (
     create_movement,
 )
@@ -42,7 +42,7 @@ async def create_item_sale(
     except Exception:
         await db.rollback()
         raise
-    quote = await get_quote()
+    quote = await effective_quote(db, get_quote)
     require_fresh_quote(quote)
     quote = await trade_quote(db, quote, "sell")
     sale = Sale(
@@ -133,7 +133,7 @@ async def create_stock_sale(
     purity = await db.get(GoldPurity, sale_data.item.gold_purity_id)
     if purity is None:
         raise ValueError("Purity not found")
-    quote = await get_quote()
+    quote = await effective_quote(db, get_quote)
     require_fresh_quote(quote)
     sale = Sale(
         **sale_data.model_dump(exclude={"item"}, exclude_none=True),

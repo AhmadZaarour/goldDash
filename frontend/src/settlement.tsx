@@ -5,14 +5,8 @@ import { all, get, Operation } from "./api";
 import { useWorkspace } from "./session";
 import { useLanguage } from "./i18n";
 import { useGoldQuote } from "./gold-price";
-import {
-  Fields,
-  ErrorBox,
-  money,
-  date,
-  locationField,
-  type Values,
-} from "./ui";
+import { useLocationValues } from "./location-settings";
+import { Fields, ErrorBox, money, date, locationField } from "./ui";
 
 export type SupplierBalance = {
   making_usd: string;
@@ -31,7 +25,7 @@ export function SupplierSettlement({
 }) {
   const { t } = useLanguage();
   const workspace = useWorkspace();
-  const [values, set] = useState<Values>({
+  const [values, set] = useLocationValues({
     direction: "sent",
     gold_grams: "0",
     making_usd: "0",
@@ -199,9 +193,11 @@ export function SupplierSettlement({
         {quote.data && (
           <p>
             {t(
-              quote.data.stale || quote.isError
-                ? "Stale quote"
-                : "Latest quote",
+              !quote.isError && quote.data.quote_mode === "manual"
+                ? "Manual gold quote"
+                : quote.data.stale || quote.isError
+                  ? "Stale quote"
+                  : "Latest quote",
             )}
             : ${money(quote.data.gram_24k_usd)} · {date(quote.data.fetched_at)}
           </p>

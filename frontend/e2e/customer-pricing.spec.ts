@@ -2,6 +2,57 @@ import { expect, test, type Page } from "@playwright/test";
 import Decimal from "decimal.js";
 import { api, login, navigate } from "./helpers";
 
+test("admin pauses the live quote, keeps the manual ounce after reload, and resumes", async ({
+  page,
+}) => {
+  await api(page);
+  let manualOunce: string | null = null;
+  await page.route("**/api/v1/gold-price/settings", (route) =>
+    route.fulfill({ json: { manual_ounce_usd: manualOunce } }),
+  );
+  await page.route("**/api/v1/gold-price/quote-mode", async (route) => {
+    expect(route.request().method()).toBe("PUT");
+    manualOunce = route.request().postDataJSON().manual_ounce_usd;
+    await route.fulfill({ json: { manual_ounce_usd: manualOunce } });
+  });
+  await page.route("**/api/v1/gold-price", (route) =>
+    manualOunce === null
+      ? route.fallback()
+      : route.fulfill({
+          json: {
+            ounce_usd: manualOunce,
+            gram_24k_usd: "110",
+            gram_21k_usd: "96.73",
+            gram_18k_usd: "82.91",
+            fetched_at: new Date(Date.now() - 600_000).toISOString(),
+            stale: false,
+            quote_mode: "manual",
+          },
+        }),
+  );
+  await login(page);
+
+  const settings = page.getByRole("button", { name: "Gold quote settings" });
+  const dialog = page.getByRole("dialog", { name: "Gold quote settings" });
+  const source = dialog.getByRole("combobox", { name: "Quote source" });
+  await settings.click();
+  await source.selectOption("manual");
+  await dialog.getByLabel("Manual 24K ounce (USD)").fill("3421");
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText("Manual gold quote")).toBeVisible();
+  await expect(page.getByText("$3421.00", { exact: true })).toBeVisible();
+
+  await page.reload();
+  await expect(page.getByText("Manual gold quote")).toBeVisible();
+  await settings.click();
+  await expect(source).toHaveValue("manual");
+  await expect(dialog.getByLabel("Manual 24K ounce (USD)")).toHaveValue("3421");
+  await source.selectOption("live");
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText("Latest quote")).toBeVisible();
+  await expect(page.getByText("$3110.00", { exact: true })).toBeVisible();
+});
+
 async function customerPrices(page: Page, initialBuy = "0", initialSell = "0") {
   const settings: Record<
     string,

@@ -130,6 +130,66 @@ async def test_weight_production_steps_track_actual_gold_not_alloy_weight(
     assert (await finish(client, batch, 2)).status_code == 409
 
 
+async def test_admin_can_correct_production_and_reverse_latest_step(client, test_session_factory):
+    s = await setup(client, test_session_factory)
+    batch = (await start(client, s)).json()["id"]
+    batch_url = f"/api/v1/operations/production/{batch}"
+    steps_url = f"/api/v1/operations/weight-production/{batch}/steps"
+    corrected = {"reference": "Corrected reference", "note": "Technician corrected the label"}
+    employee = await headers_for(test_session_factory, "employee")
+    assert (
+        await client.patch(batch_url, json=corrected, headers={**header("factory"), **employee})
+    ).status_code == 403
+    assert (
+        await client.patch(batch_url, json=corrected, headers=header("factory"))
+    ).status_code == 200
+
+    assert (await step(client, batch, s, scrap="1")).status_code == 201
+    before = await details(client, batch)
+    assert before["reference"] == corrected["reference"]
+    assert (await step(client, batch, s, index=1, weight="59.9")).status_code == 201
+    original = (await details(client, batch))["details"]["steps"]
+    old_timestamp = original[1]["created_at"]
+    change = {
+        "name": "Corrected polishing",
+        "note": "Measured loss after polishing",
+        "expected_created_at": old_timestamp,
+    }
+    updated = await client.patch(f"{steps_url}/2", json=change, headers=header("factory"))
+    assert updated.status_code == 200, updated.text
+    edited = (await details(client, batch))["details"]["steps"][1]
+    assert edited == {**original[1], "name": change["name"], "note": change["note"]}
+
+    data = {"note": "Redo final measurements", "expected_created_at": original[0]["created_at"]}
+    previous = await client.post(f"{steps_url}/1/reverse", json=data, headers=header("factory"))
+    assert previous.status_code == 409
+    data["expected_created_at"] = old_timestamp
+    reverse_header = header("factory", "undo-step")
+    reversed_step = await client.post(f"{steps_url}/2/reverse", json=data, headers=reverse_header)
+    assert reversed_step.status_code == 201, reversed_step.text
+    assert (
+        await client.post(f"{steps_url}/2/reverse", json=data, headers=reverse_header)
+    ).json() == reversed_step.json()
+    assert (await details(client, batch)) == before
+    assert Decimal((await overview(client, s, "factory"))["cash_usd"]) == 985
+    assert await stock(client) == []
+
+    assert (await step(client, batch, s, index=1, weight="59.8")).status_code == 201
+    stale_finish = await client.post(
+        f"/api/v1/operations/weight-production/{batch}/finish",
+        json={"expected_step": 2, "expected_step_created_at": old_timestamp},
+        headers=header("factory"),
+    )
+    assert stale_finish.status_code == 409
+    result = await client.post(
+        f"{batch_url}/reverse", json={"note": "Cancel run"}, headers=header("factory")
+    )
+    assert result.status_code == 201, result.text
+    summary = await overview(client, s, "factory")
+    assert Decimal(summary["cash_usd"]) == 1000
+    assert Decimal(summary["bulk"][0]["total_weight"]) == 100
+
+
 async def test_invalid_production_does_not_lose_raw_stock_or_cash(client, test_session_factory):
     s = await setup(client, test_session_factory)
     batch = (await start(client, s)).json()["id"]
@@ -334,12 +394,23 @@ async def test_internal_weight_supply_reversal_restores_original_lots(client, te
     before = await stock(client)
     invoice = await supply(client, s)
     assert invoice.status_code == 201
+    invoice_url = f"/api/v1/operations/internal-invoices/{invoice.json()['id']}"
+    note = {"note": "Corrected dispatch description"}
+    edit = await client.patch(invoice_url, json=note, headers=header("factory"))
+    assert edit.status_code == 200, edit.text
+    invoices = await client.get("/api/v1/operations/internal-invoices", headers=header("showroom"))
+    assert invoices.json()[0]["note"] == note["note"]
     response = await client.post(
-        f"/api/v1/operations/internal-invoices/{invoice.json()['id']}/reverse",
+        f"{invoice_url}/reverse",
         json={"note": "Supply correction"},
         headers=header("showroom"),
     )
     assert response.status_code == 201, response.text
+    assert (
+        await client.patch(invoice_url, json=note, headers=header("factory"))
+    ).status_code == 409
+    invoices = await client.get("/api/v1/operations/internal-invoices", headers=header("showroom"))
+    assert invoices.json()[1]["is_reversed"] is True
     assert await stock(client) == before
     assert (
         await client.get("/api/v1/operations/pending-receipts", headers=header("showroom"))
@@ -491,7 +562,7 @@ async def test_invoice_rounds_making_charge_once_and_finished_seed_can_reverse(
     ).status_code == 409
 
 
-async def test_showroom_employee_can_stage_only_pending_receipt_photos(
+async def test_admin_can_stage_only_pending_showroom_receipt_photos(
     client,
     test_session_factory,
     tmp_path,
@@ -504,38 +575,49 @@ async def test_showroom_employee_can_stage_only_pending_receipt_photos(
     s = await setup(client, test_session_factory)
     await completed(client, s)
     invoice = await supply(client, s)
-    employee = {**await headers_for(test_session_factory, "employee"), **header("showroom")}
+    employee = await headers_for(test_session_factory, "employee")
+    showroom_employee = {**employee, **header("showroom")}
     invoice_id = invoice.json()["id"]
     photo_url = f"/api/v1/operations/weight-internal-invoices/{invoice_id}/photos"
     assert (
-        await client.post("/api/v1/purchases/photos", content=jpeg(), headers=employee)
+        await client.post(photo_url, content=jpeg(), headers=showroom_employee)
+    ).status_code == 403
+    receipt_url = f"/api/v1/operations/weight-internal-invoices/{invoice_id}/receive"
+    assert (
+        await client.post(
+            receipt_url,
+            json={"pieces": [{"product_id": s["item"], "weight": "10"}]},
+            headers=showroom_employee,
+        )
     ).status_code == 403
     assert (
         await client.post(
             "/api/v1/operations/weight-internal-invoices/999999/photos",
             content=jpeg(),
-            headers=employee,
+            headers=header("showroom"),
         )
     ).status_code == 404
     assert (
-        await client.post(
-            photo_url, content=jpeg(), headers={**employee, "X-Business-Unit": "factory"}
-        )
+        await client.post(photo_url, content=jpeg(), headers={**employee, **header("factory")})
     ).status_code == 403
-    photo = await client.post(photo_url, content=jpeg(), headers=employee)
+    photo = await client.post(photo_url, content=jpeg(), headers=header("showroom"))
     assert photo.status_code == 201, photo.text
     response = await client.post(
-        f"/api/v1/operations/weight-internal-invoices/{invoice_id}/receive",
+        receipt_url,
         json={
             "pieces": [
                 {"product_id": s["item"], "weight": "10", "photo_token": photo.json()["token"]}
             ]
         },
-        headers=employee,
+        headers=header("showroom"),
     )
     assert response.status_code == 201, response.text
     item_id = response.json()["inventory_item_ids"][0]
-    item = (await client.get(f"/api/v1/inventory/items/{item_id}", headers=employee)).json()
+    item = (
+        await client.get(f"/api/v1/inventory/items/{item_id}", headers=header("showroom"))
+    ).json()
     assert item["image_url"].endswith(".jpg")
-    assert (await client.get(item["image_url"], headers=employee)).status_code == 200
-    assert (await client.post(photo_url, content=jpeg(), headers=employee)).status_code == 409
+    assert (await client.get(item["image_url"], headers=header("showroom"))).status_code == 200
+    assert (
+        await client.post(photo_url, content=jpeg(), headers=header("showroom"))
+    ).status_code == 409

@@ -5,8 +5,8 @@ import { all, get, raw, Operation, type Row } from "./api";
 import { useCan } from "./session";
 import { useLanguage } from "./i18n";
 import { useGoldQuote } from "./gold-price";
+import { useLocationValues } from "./location-settings";
 import { ServiceSaleButton } from "./servicing";
-import { resizePhoto } from "./item-photo";
 import {
   Busy,
   DataList,
@@ -159,13 +159,168 @@ function GoldAudit({ rows }: { rows: Row[] }) {
   );
 }
 
+function ProductionBatchActions({ batch }: { batch: Row }) {
+  const { t } = useLanguage();
+  const [action, setAction] = useState<"edit" | "reverse">();
+  const op = useRef(new Operation());
+  const close = () => setAction(undefined);
+  const done = useDone(close);
+  if (!["active", "in_progress"].includes(String(batch.status))) return null;
+  const path = `/operations/production/${batch.id}`;
+  return (
+    <>
+      <button className="ghost" onClick={() => setAction("edit")}>
+        {t("Edit")}
+      </button>
+      <button className="ghost danger" onClick={() => setAction("reverse")}>
+        {t("Reverse")}
+      </button>
+      {action === "edit" && (
+        <Modal title="Edit production batch" close={close}>
+          <Form
+            fields={[
+              { key: "reference", label: "Reference", maxLength: 100 },
+              note,
+            ]}
+            initial={{
+              reference: String(batch.reference ?? ""),
+              note: String(batch.note ?? ""),
+            }}
+            submit={(values) =>
+              op.current.send(
+                path,
+                {
+                  reference: values.reference || null,
+                  note: values.note || null,
+                },
+                "PATCH",
+              )
+            }
+            done={done}
+          />
+        </Modal>
+      )}
+      {action === "reverse" && (
+        <Modal title="Reverse production batch" close={close}>
+          <p>
+            {t(
+              "Reversing the batch restores its raw gold and production costs.",
+            )}
+          </p>
+          <Form
+            fields={[{ ...note, required: true }]}
+            button="Reverse"
+            submit={(values) =>
+              op.current.send(path + "/reverse", values, "POST", true)
+            }
+            done={done}
+          />
+        </Modal>
+      )}
+    </>
+  );
+}
+
+function ProductionStepActions({
+  batch,
+  step,
+  position,
+  last,
+}: {
+  batch: Row;
+  step: Row;
+  position: number;
+  last: boolean;
+}) {
+  const { t } = useLanguage();
+  const [action, setAction] = useState<"edit" | "reverse">();
+  const op = useRef(new Operation());
+  const done = useDone(() => setAction(undefined));
+  const path = `/operations/weight-production/${batch.id}/steps/${position}`;
+  const canReverse = last && batch.status === "in_progress";
+  if (!["active", "in_progress"].includes(String(batch.status))) return null;
+  return (
+    <div>
+      {!action && (
+        <div className="operations-actions">
+          <button className="ghost" onClick={() => setAction("edit")}>
+            {t("Edit step")}
+          </button>
+          {canReverse && (
+            <button
+              className="ghost danger"
+              onClick={() => setAction("reverse")}
+            >
+              {t("Reverse step")}
+            </button>
+          )}
+        </div>
+      )}
+      {action === "edit" && (
+        <Form
+          fields={[
+            { key: "name", label: "Step name", required: true, maxLength: 100 },
+            { ...note, required: Number(step.loss_gold_24k) > 0.001 },
+          ]}
+          initial={{
+            name: String(step.name ?? ""),
+            note: String(step.note ?? ""),
+          }}
+          submit={(values) =>
+            op.current.send(
+              path,
+              {
+                name: values.name,
+                note: values.note || null,
+                expected_created_at: step.created_at,
+              },
+              "PATCH",
+            )
+          }
+          done={done}
+        />
+      )}
+      {action === "reverse" && canReverse && (
+        <Form
+          fields={[{ ...note, required: true }]}
+          button="Reverse step"
+          submit={(values) =>
+            op.current.send(
+              path + "/reverse",
+              { note: values.note, expected_created_at: step.created_at },
+              "POST",
+              true,
+            )
+          }
+          done={done}
+        >
+          <p>
+            {t(
+              "Reversing this step restores the previous measurements and refunds its cost to the drawer.",
+            )}
+          </p>
+        </Form>
+      )}
+      {action && (
+        <button
+          type="button"
+          className="ghost"
+          onClick={() => setAction(undefined)}
+        >
+          {t("Cancel")}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function Production() {
   const { t } = useLanguage();
   const can = useCan();
   const q = useQueryClient();
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<Row>();
-  const [head, setHead] = useState<Values>({ direct_cost_usd: "0" });
+  const [head, setHead] = useLocationValues({ direct_cost_usd: "0" });
   const [inputs, setInputs] = useState<Values[]>([{}]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>();
@@ -245,6 +400,11 @@ export function Production() {
             },
           ]}
           view={setSelected}
+          actions={
+            can.admin
+              ? (batch) => <ProductionBatchActions batch={batch} />
+              : undefined
+          }
         />
       </section>
       {open && (
@@ -299,6 +459,7 @@ export function Production() {
                   {money(detail.data.total_cost_usd)} · {t("Loss (24K g)")}:{" "}
                   <bdi>{text(detail.data.loss_gold_24k)}</bdi>
                 </p>
+                {!!detail.data.note && <p>{text(detail.data.note)}</p>}
                 <h3>{t("Raw gold input")}</h3>
                 <GoldAudit
                   rows={
@@ -306,8 +467,11 @@ export function Production() {
                   }
                 />
                 {((detail.data.details as { steps?: Row[] })?.steps || []).map(
-                  (step, i) => (
-                    <section className="panel" key={i}>
+                  (step, i, steps) => (
+                    <section
+                      className="panel"
+                      key={String(step.created_at ?? i)}
+                    >
                       <h3>
                         {i + 1}. {text(step.name)}
                       </h3>
@@ -323,6 +487,14 @@ export function Production() {
                       <h4>{t("Newly recovered scrap")}</h4>
                       <GoldAudit rows={step.scrap as Row[]} />
                       {!!step.note && <p>{text(step.note)}</p>}
+                      {can.admin && typeof step.created_at === "string" && (
+                        <ProductionStepActions
+                          batch={detail.data}
+                          step={step}
+                          position={i + 1}
+                          last={i + 1 === steps.length}
+                        />
+                      )}
                     </section>
                   ),
                 )}
@@ -379,7 +551,12 @@ function StepForm({ batch, changed }: { batch: Row; changed: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>();
   const op = useRef(new Operation());
-  const count = ((batch.details as { steps: Row[] }).steps || []).length;
+  const steps = (batch.details as { steps: Row[] }).steps || [];
+  const count = steps.length;
+  const expected = {
+    expected_step: count,
+    expected_step_created_at: steps.at(-1)?.created_at,
+  };
   async function send(e?: FormEvent) {
     e?.preventDefault();
     setBusy(true);
@@ -392,11 +569,11 @@ function StepForm({ batch, changed }: { batch: Row; changed: () => void }) {
               name: head.name,
               note: head.note || null,
               direct_cost_usd: head.direct_cost_usd || "0",
-              expected_step: count,
+              ...expected,
               outputs: rowsPayload(outputs),
               scrap: rowsPayload(scrap),
             }
-          : { expected_step: count },
+          : expected,
         "POST",
         true,
       );
@@ -478,7 +655,7 @@ export function WeightTradeForm({
     queryKey: ["options", "factory-purities"],
     queryFn: () => all("/goldpurities"),
   });
-  const [head, setHead] = useState<Values>({});
+  const [head, setHead] = useLocationValues();
   const [rows, setRows] = useState<Values[]>([{ making_per_gram: "0" }]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>();
@@ -726,7 +903,7 @@ export function FactoryInventory() {
   const can = useCan();
   const [open, setOpen] = useState(false);
   const [moving, setMoving] = useState(false);
-  const [head, setHead] = useState<Values>({});
+  const [head, setHead] = useLocationValues();
   const [rows, setRows] = useState<Values[]>([{}]);
   const op = useRef(new Operation());
   const done = useDone(() => {
@@ -857,6 +1034,11 @@ export function FactoryInventory() {
             { key: "loss_gold_24k", label: "Loss (24K g)" },
           ]}
           searchable={false}
+          actions={
+            can.admin
+              ? (batch) => <ProductionBatchActions batch={batch} />
+              : undefined
+          }
         />
       </section>
       {open && (
@@ -911,11 +1093,7 @@ function ReceiptPhoto({
               const response = await (
                 await raw(
                   `/operations/weight-internal-invoices/${invoiceId}/photos`,
-                  {
-                    method: "POST",
-                    body: await resizePhoto(file),
-                    headers: { "Content-Type": "image/jpeg" },
-                  },
+                  { method: "POST", body: file },
                 )
               ).json();
               change({ ...value, photo_token: response.token });

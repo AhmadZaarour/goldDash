@@ -1,4 +1,4 @@
-import secrets
+from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
@@ -8,6 +8,7 @@ from app.core.workspace import active_unit
 from app.models.inventoryItem import InventoryItem
 from app.models.inventoryMovement import InventoryMovement
 from app.models.inventoryStock import InventoryStock
+from app.models.operations import InternalInvoiceLine
 from app.schemas.inventory import (
     InventoryItemCreate,
     InventoryItemUpdate,
@@ -16,6 +17,7 @@ from app.schemas.inventory import (
     InventoryStockCreate,
     InventoryStockUpdate,
 )
+from app.services.barcodes import BARCODE_ATTEMPTS, generate_barcode
 
 
 async def create_item(
@@ -25,8 +27,7 @@ async def create_item(
 
     # PostgreSQL arbitrates uniqueness so concurrent requests cannot share a code.
     # A barcode collision retries only this insert, preserving the purchase transaction.
-    for _ in range(5):
-        barcode = f"GI{secrets.token_hex(8).upper()}"
+    for _ in range(BARCODE_ATTEMPTS):
         statement = (
             insert(InventoryItem)
             .values(
@@ -34,7 +35,7 @@ async def create_item(
                 purchase_item_id=item_data.purchase_item_id,
                 production_piece_id=item_data.production_piece_id,
                 location_id=item_data.location_id,
-                barcode=barcode,
+                barcode=generate_barcode("GI"),
                 image_url=str(item_data.image_url) if item_data.image_url is not None else None,
                 status=item_data.status,
             )
@@ -60,6 +61,25 @@ async def get_item(
     item_id: int,
 ) -> InventoryItem | None:
     return await db.scalar(select(InventoryItem).where(InventoryItem.id == item_id))
+
+
+async def get_item_cost_components(
+    db: AsyncSession, item: InventoryItem
+) -> tuple[Decimal | None, Decimal]:
+    """Return the piece's gold and making inputs for current quote valuation."""
+    if item.acquisition_internal_id is not None:
+        acquisition = await db.scalar(
+            select(InternalInvoiceLine).where(
+                InternalInvoiceLine.invoice_id == item.acquisition_internal_id,
+                InternalInvoiceLine.inventory_item_id == item.id,
+            )
+        )
+        if acquisition is not None:
+            return acquisition.gold_24k, acquisition.making_usd
+    if item.purchase_item is not None:
+        return None, item.purchase_item.weight * item.purchase_item.making_charge
+    piece = item.production_piece
+    return piece.gold_charge_24k, piece.making_charge
 
 
 async def update_item(

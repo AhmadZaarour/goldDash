@@ -3,7 +3,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
-from sqlalchemy import func, select, true, union_all
+from sqlalchemy import case, func, select, true, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -81,6 +81,10 @@ async def monthly_profit_service(
         .group_by(SaleStock.gold_purity_id)
         .order_by(SaleStock.gold_purity_id)
     )
+    purchase_posted_at = case(
+        (SupplierLedgerEntry.kind == "purchase", Purchase.created_at),
+        else_=SupplierLedgerEntry.created_at,
+    )
     supplier_purchases = (
         select(
             SupplierLedgerEntry.purity_id,
@@ -89,9 +93,9 @@ async def monthly_profit_service(
         )
         .join(Purchase, Purchase.id == SupplierLedgerEntry.purchase_id)
         .where(
-            SupplierLedgerEntry.kind == "purchase",
-            Purchase.created_at >= start,
-            Purchase.created_at < end,
+            SupplierLedgerEntry.kind.in_(("purchase", "reversal")),
+            purchase_posted_at >= start,
+            purchase_posted_at < end,
         )
         .group_by(SupplierLedgerEntry.purity_id)
         .order_by(SupplierLedgerEntry.purity_id)

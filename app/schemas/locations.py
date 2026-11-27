@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, StringConstraints, field_validator
+from pydantic import BaseModel, ConfigDict, PositiveInt, StringConstraints, field_validator
 
 LocationName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=50)]
 LocationCode = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=50)]
@@ -36,3 +36,7 @@ class LocationResponse(BaseModel):
     code: str
     address: str | None
     is_active: bool
+
+
+class DefaultLocation(BaseModel):
+    location_id: PositiveInt | None

@@ -8,21 +8,25 @@ from app.core.authorization import AdminUser, CashierUser
 from app.core.database import get_db
 from app.core.pagination import paginate
 from app.models.cashLedger import CashEntry
-from app.services.idempotency import IdempotencyKey
 from app.schemas.cash import (
     CashEntryResponse,
     CashOutflowCreate,
+    CashOutflowDetails,
     CashSummaryResponse,
+    ReconciliationCounts,
     ReconciliationCreate,
     ReconciliationResponse,
 )
 from app.services.cash_service import (
+    correct_outflow,
+    correct_reconciliation,
     period_statement,
-    summary_service,
     reconcile_service,
     reconciliations_service,
     record_outflow_service,
-    )
+    summary_service,
+)
+from app.services.idempotency import IdempotencyKey
 
 router = APIRouter(prefix="/cash", tags=["Cash"])
 Database = Annotated[AsyncSession, Depends(get_db)]
@@ -69,6 +73,7 @@ async def entries(
         offset,
     )
 
+
 @router.get("/summary", response_model=CashSummaryResponse)
 async def summary(
     db: Database,
@@ -96,6 +101,7 @@ async def reconcile(
     record = await reconcile_service(data, db, user)
     return ReconciliationResponse.model_validate(record)
 
+
 @router.get("/reconciliations", response_model=list[ReconciliationResponse])
 async def reconciliations(
     db: Database,
@@ -111,6 +117,7 @@ async def reconciliations(
     result = await reconciliations_service(db, response, location_id, limit, offset)
     return [ReconciliationResponse.model_validate(record) for record in result]
 
+
 @router.post("/outflows", response_model=CashEntryResponse, status_code=201)
 async def record_outflow(
     data: CashOutflowCreate,
@@ -123,3 +130,25 @@ async def record_outflow(
     """
     receipt = await record_outflow_service(data, db, user, idempotency_key)
     return receipt
+
+
+@router.patch("/outflows/{entry_id}", response_model=CashEntryResponse)
+async def update_outflow(entry_id: int, data: CashOutflowDetails, db: Database, user: AdminUser):
+    return await correct_outflow(db, entry_id, data)
+
+
+@router.delete("/outflows/{entry_id}", status_code=204)
+async def delete_outflow(entry_id: int, db: Database, user: AdminUser):
+    await correct_outflow(db, entry_id, None)
+
+
+@router.patch("/reconciliations/{record_id}", response_model=ReconciliationResponse)
+async def update_reconciliation(
+    record_id: int, data: ReconciliationCounts, db: Database, user: AdminUser
+):
+    return await correct_reconciliation(db, record_id, data)
+
+
+@router.delete("/reconciliations/{record_id}", status_code=204)
+async def void_reconciliation(record_id: int, db: Database, user: AdminUser):
+    await correct_reconciliation(db, record_id, None)

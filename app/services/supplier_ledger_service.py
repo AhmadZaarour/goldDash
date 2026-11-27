@@ -15,7 +15,7 @@ from app.models.inventoryBalance import InventoryBalance
 from app.models.supplierLedger import SupplierLedgerEntry
 from app.schemas.supplier_ledger import ReversalCreate, SettlementCreate
 from app.services.gold_conversion import canonical_purity, grams24, purchase_factor
-from app.services.gold_price import get_quote, price_per_gram, require_fresh_quote
+from app.services.gold_price import effective_quote, get_quote, price_per_gram, require_fresh_quote
 from app.services.settlement_resources import available_cash, move_resources
 from app.services.transaction_validation import require_active_location, require_active_supplier
 from app.services.workspace_stock import value4
@@ -154,7 +154,7 @@ async def settle_service(supplier_id: int, data: SettlementCreate, db: AsyncSess
     try:
         if data.gold_grams and data.direction == "received":
             if recorded_price is None:
-                quote = await get_quote()
+                quote = await effective_quote(db, get_quote)
                 require_fresh_quote(quote)
                 recorded_price = Decimal(quote["gram_24k_usd"])
             stock_value = value4(
@@ -235,6 +235,26 @@ async def history_service(
     if to_at:
         statement = statement.where(SupplierLedgerEntry.created_at < to_at)
     return await paginate(db, statement.order_by(SupplierLedgerEntry.id), response, limit, offset)
+
+
+async def update_settlement_note(
+    db: AsyncSession, supplier_id: int, entry_id: int, note: str | None
+) -> SupplierLedgerEntry:
+    entry = await db.scalar(
+        select(SupplierLedgerEntry)
+        .where(
+            SupplierLedgerEntry.id == entry_id,
+            SupplierLedgerEntry.supplier_id == supplier_id,
+        )
+        .with_for_update()
+    )
+    if entry is None:
+        raise HTTPException(404, "Supplier ledger entry not found")
+    if entry.kind != "settlement":
+        raise HTTPException(409, "Only settlement notes can be edited")
+    entry.note = note
+    await db.commit()
+    return entry
 
 
 async def reverse_settlement_service(

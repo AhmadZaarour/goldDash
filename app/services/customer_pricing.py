@@ -20,10 +20,25 @@ async def price_settings(db):
 
 
 async def save_settings(db, data, user_id):
+    return await _save_settings(db, data.model_dump(), user_id)
+
+
+async def save_quote_mode(db, data, user_id):
+    return await _save_settings(
+        db,
+        {
+            "manual_ounce_usd": data.manual_ounce_usd,
+            "quote_updated_at": datetime.now(UTC) if data.manual_ounce_usd is not None else None,
+        },
+        user_id,
+    )
+
+
+async def _save_settings(db, values, user_id):
     unit = active_unit()
     if unit not in {"factory", "showroom"}:
-        raise HTTPException(409, "Choose Factory or Showroom to edit customer price adjustments")
-    values = {**data.model_dump(), "updated_by": user_id, "updated_at": datetime.now(UTC)}
+        raise HTTPException(409, "Choose Factory or Showroom to edit gold price settings")
+    values = {**values, "updated_by": user_id, "updated_at": datetime.now(UTC)}
     statement = insert(GoldPriceSettings).values(unit=unit, **values)
     await db.execute(
         statement.on_conflict_do_update(index_elements=[GoldPriceSettings.unit], set_=values)

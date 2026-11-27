@@ -1,7 +1,8 @@
+from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 
-from sqlalchemy import ForeignKey, Numeric, String
+from sqlalchemy import DateTime, ForeignKey, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -41,3 +42,6 @@ class PurchaseStock(UnitOwned, Base):
     cost_per_gram: Mapped[Decimal] = mapped_column(
         Numeric(14, 4),
     )
+
+    credited_balance_id: Mapped[int | None] = mapped_column(ForeignKey("inventory_balances.id"))
+    credited_balance_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

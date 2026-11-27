@@ -76,7 +76,9 @@ export async function api(page: Page, role = "admin") {
           image_url: null,
         },
       ];
-    else if (path === "/inventory/items/1")
+    else if (
+      path === "/inventory/items/1" || path === "/inventory/items/1/sale-cost"
+    )
       body = {
         id: 1,
         barcode: "GI1234567890ABCDEF",
@@ -84,6 +86,7 @@ export async function api(page: Page, role = "admin") {
         purity_id: 1,
         weight: "2.500",
         base_cost_usd: "165.00",
+        base_making_usd: "15.00",
         status: "in_stock",
         location_id: 1,
       };
@@ -93,6 +96,7 @@ export async function api(page: Page, role = "admin") {
       ];
     else if (path === "/locations")
       body = [{ id: 1, name: "Main showroom", code: "MAIN", is_active: true }];
+    else if (path === "/locations/default") body = { location_id: null };
     else if (path === "/products")
       body = [
         {
@@ -140,13 +144,13 @@ export async function api(page: Page, role = "admin") {
     });
   });
 }
-export async function login(page: Page) {
+export async function login(page: Page, landing = "Overview") {
   await page.goto("/");
-  await page.getByLabel("Email", { exact: true }).fill("owner@example.com");
+  await page.getByLabel("Username or email", { exact: true }).fill("owner@example.com");
   await page.getByLabel("Password", { exact: true }).fill("TestPassword123!");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Overview", exact: true }),
+    page.getByRole("heading", { name: landing, exact: true }),
   ).toBeVisible();
 }
 export async function navigate(page: Page, label: string) {

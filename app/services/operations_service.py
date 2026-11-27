@@ -37,7 +37,7 @@ from app.models.operations import (
 from app.schemas.inventory import InventoryItemCreate
 from app.schemas.operations import LegacyAssignCreate, OperationResult
 from app.services.gold_conversion import allocate_charge, grams24, purchase_factor
-from app.services.gold_price import get_quote, price_per_gram, require_fresh_quote
+from app.services.gold_price import effective_quote, get_quote, price_per_gram, require_fresh_quote
 from app.services.idempotency import claim_operation, complete_operation
 from app.services.inventory_service import create_item
 from app.services.operations_query_service import LEGACY_MODELS
@@ -393,7 +393,7 @@ async def production(db, data, user_id):
     costs = allocate_value(total, output_weights)
     direct_costs = allocate_value(data.direct_cost_usd, output_weights)
     charges = allocate_charge(grams24(output_gold, Decimal(1)), output_weights)
-    quote = await get_quote()
+    quote = await effective_quote(db, get_quote)
     require_fresh_quote(quote)
     doc = await document(
         db,
@@ -673,7 +673,7 @@ async def supplier_item_sale(db, data, user_id):
     await lock_locations(db, data.location_id)
     await require_active_supplier(db, data.supplier_id, exclusive=True)
     items = await locked_factory_pieces(db, data.pieces, data.location_id)
-    quote = await get_quote()
+    quote = await effective_quote(db, get_quote)
     require_fresh_quote(quote)
     sale = Sale(
         unit="factory",
@@ -929,6 +929,51 @@ async def reverse_production(db, batch_id, note, user_id):
         )
     batch.status = "reversed"
     return {"id": doc.id, "kind": "production_reversal", "message": "Production batch reversed"}
+
+
+async def update_production_details(db, batch_id, data):
+    batch = await db.scalar(
+        select(ProductionBatch).where(ProductionBatch.id == batch_id).with_for_update()
+    )
+    if batch is None:
+        raise HTTPException(404, "Production batch not found")
+    if batch.status not in {"active", "in_progress"}:
+        raise HTTPException(409, "Reversed production cannot be edited")
+    batch.reference = data.reference
+    batch.note = data.note
+    await db.commit()
+    return {"id": batch.id, "kind": "production", "message": "Production details updated"}
+
+
+async def update_internal_invoice_note(db, invoice_id, data):
+    invoice = await db.scalar(
+        select(InternalInvoice).where(InternalInvoice.id == invoice_id).with_for_update()
+    )
+    if invoice is None:
+        raise HTTPException(404, "Internal invoice not found")
+    if invoice.reversal_of_id is not None or await db.scalar(
+        select(InternalInvoice.id).where(InternalInvoice.reversal_of_id == invoice.id)
+    ):
+        raise HTTPException(409, "Reversed internal invoices cannot be edited")
+    invoice.note = data.note
+    await db.commit()
+    return {"id": invoice.id, "kind": "internal_invoice", "message": "Invoice note updated"}
+
+
+async def update_internal_payment_note(db, payment_id, data):
+    payment = await db.scalar(
+        select(InternalPayment).where(InternalPayment.id == payment_id).with_for_update()
+    )
+    if payment is None:
+        raise HTTPException(404, "Internal payment not found")
+    if payment.reversal_of_id is not None or await db.scalar(
+        select(InternalPayment.id).where(InternalPayment.reversal_of_id == payment.id)
+    ):
+        raise HTTPException(409, "Reversed internal payments cannot be edited")
+    document = await db.get(OperationDocument, payment.operation_id)
+    document.note = data.note
+    await db.commit()
+    return {"id": payment.id, "kind": "internal_payment", "message": "Payment note updated"}
 
 
 async def reverse_internal_invoice(db, invoice_id, note, user_id):

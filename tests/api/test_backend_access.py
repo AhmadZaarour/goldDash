@@ -60,6 +60,7 @@ async def test_only_admin_can_purchase_settle_and_register(client, test_session_
 
 async def test_employee_cannot_sell_and_cashier_cannot_transfer(client, test_session_factory):
     employee = await headers_for(test_session_factory, "employee")
+    employee["X-Business-Unit"] = "factory"
     cashier = await headers_for(test_session_factory, "cashier")
     assert (await client.post("/api/v1/sales/item", json={}, headers=employee)).status_code == 403
     assert (
@@ -68,8 +69,47 @@ async def test_employee_cannot_sell_and_cashier_cannot_transfer(client, test_ses
     assert (
         await client.post("/api/v1/inventory/stocks/transfer", json={}, headers=cashier)
     ).status_code == 403
-    assert (await client.get("/api/v1/categories", headers=employee)).status_code == 200
+    assert (await client.get("/api/v1/categories", headers=employee)).status_code == 403
     assert (await client.get("/api/v1/inventory/items", headers=cashier)).status_code == 200
+
+
+@pytest.mark.parametrize(
+    ("role", "workspace", "other_workspace"),
+    [("cashier", "showroom", "factory"), ("employee", "factory", "showroom")],
+)
+async def test_staff_role_overrides_old_workspace_settings(
+    client, test_session_factory, role, workspace, other_workspace
+):
+    headers = await headers_for(test_session_factory, role, workspace_access=other_workspace)
+    profile = await client.get("/api/v1/auth/me", headers=headers)
+    assert profile.json()["workspace_access"] == workspace
+
+    expected = {**headers, "X-Business-Unit": workspace}
+    workspaces = await client.get("/api/v1/operations/workspaces", headers=expected)
+    assert workspaces.json()["units"] == [workspace]
+    for unit in [other_workspace, "legacy"]:
+        response = await client.get(
+            "/api/v1/servicing", headers={**headers, "X-Business-Unit": unit}
+        )
+        assert response.status_code == 403
+    assert (await client.get("/api/v1/servicing", headers=expected)).status_code == 200
+    if role == "employee":
+        for path in ("production", "production/1"):
+            response = await client.get(f"/api/v1/operations/{path}", headers=expected)
+            assert response.status_code in {200, 404}
+        for path in (
+            "operations/overview",
+            "operations/finished-stock",
+            "purchases",
+            "cash/entries",
+            "suppliers",
+            "sales",
+            "inventory/items",
+            "servicing/sales",
+        ):
+            assert (await client.get(f"/api/v1/{path}", headers=expected)).status_code == 403
+        assert (await client.get("/api/v1/locations/default", headers=expected)).status_code == 200
+        assert (await client.get("/api/v1/goldpurities", headers=expected)).status_code == 200
 
 
 async def test_registration_is_not_public_and_inactive_users_cannot_login(

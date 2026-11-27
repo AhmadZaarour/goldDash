@@ -67,6 +67,11 @@ class InventoryItemResponse(BaseModel):
     status: str | None = Field(default=None, min_length=1, max_length=50)
 
 
+class InventoryItemSaleCostResponse(InventoryItemResponse):
+    base_gold_24k: Decimal | None = None
+    base_making_usd: Decimal
+
+
 class InventoryStockResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

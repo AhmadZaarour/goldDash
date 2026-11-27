@@ -6,7 +6,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   X,
   Search,
@@ -15,8 +15,9 @@ import {
   LoaderCircle,
 } from "lucide-react";
 import Decimal from "decimal.js";
-import { all, list, get, type Row, ApiError } from "./api";
+import { all, list, get, raw, type Row, ApiError } from "./api";
 import { useLanguage } from "./i18n";
+import { useLocationValues } from "./location-settings";
 export const text = (x: unknown) => (x == null ? "—" : String(x));
 export const money = (x: unknown) => {
   try {
@@ -39,7 +40,7 @@ export function ErrorBox({ error }: { error: unknown }) {
       {error instanceof ApiError && error.status === 401
         ? t("Session expired")
         : error instanceof Error
-          ? error.message
+          ? t(error.message)
           : t("Try again")}
     </div>
   ) : null;
@@ -92,6 +93,72 @@ export function Modal({
     </dialog>
   );
 }
+export function DeleteRecordButton({
+  path,
+  name,
+  label = "Delete",
+  confirmation = "Permanently delete this record?",
+  done,
+}: {
+  path: string;
+  name: string;
+  label?: string;
+  confirmation?: string;
+  done?: () => void;
+}) {
+  const { t } = useLanguage();
+  const client = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const removal = useMutation({
+    mutationFn: () => raw(path, { method: "DELETE" }),
+    onSuccess: () => {
+      setOpen(false);
+      void client.invalidateQueries();
+      done?.();
+    },
+  });
+  function close() {
+    if (!removal.isPending) setOpen(false);
+  }
+  return (
+    <>
+      <button
+        className="ghost danger"
+        onClick={() => {
+          removal.reset();
+          setOpen(true);
+        }}
+      >
+        {t(label)}
+      </button>
+      {open && (
+        <Modal title={label === "Delete" ? "Delete record" : label} close={close}>
+          <p>{t(confirmation)}</p>
+          <p>
+            <bdi>{name}</bdi>
+          </p>
+          <ErrorBox error={removal.error} />
+          <footer>
+            <button
+              className="secondary"
+              disabled={removal.isPending}
+              onClick={close}
+            >
+              {t("Cancel")}
+            </button>
+            <button
+              className="secondary danger"
+              disabled={removal.isPending}
+              onClick={() => removal.mutate()}
+            >
+              {t(removal.isPending ? "Working…" : label)}
+            </button>
+          </footer>
+        </Modal>
+      )}
+    </>
+  );
+}
 export interface Field {
   key: string;
   label: string;
@@ -110,8 +177,10 @@ export interface Field {
   filter?: (r: Row) => boolean;
   min?: string;
   maxLength?: number;
+  autoComplete?: string;
   step?: string;
   optional?: boolean;
+  placeholder?: string;
 }
 export type Values = Record<string, string | boolean>;
 export function Select({
@@ -137,7 +206,9 @@ export function Select({
       onChange={(e) => change(e.target.value)}
       disabled={q.isLoading}
     >
-      <option value="">{t(field.optional ? "All" : "Choose…")}</option>
+      <option value="">
+        {t(field.placeholder ?? (field.optional ? "All" : "Choose…"))}
+      </option>
       {field.options?.map((v) => (
         <option key={v} value={v}>
           {t(v)}
@@ -206,6 +277,7 @@ export function Fields({
             <input
               aria-label={t(f.label)}
               type={f.type === "money" ? "text" : f.type || "text"}
+              autoComplete={f.autoComplete}
               inputMode={f.type === "money" ? "decimal" : undefined}
               pattern={f.type === "money" ? "[0-9]+([.][0-9]+)?" : undefined}
               required={f.required}
@@ -264,7 +336,15 @@ export function Form({
   children?: ReactNode;
   button?: string;
 }) {
-  const [v, set] = useState<Values>(initial);
+  const defaultLocationField = fields.find(
+    (field) =>
+      field.resource === "locations" &&
+      (field.key === "location_id" || field.key === "source_location_id"),
+  );
+  const [v, set] = useLocationValues(
+    initial,
+    defaultLocationField?.key ?? null,
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>();
   const { t } = useLanguage();
@@ -305,6 +385,7 @@ export function DataList({
   params = {},
   view,
   edit,
+  actions,
   searchable = true,
   local = false,
 }: {
@@ -313,6 +394,7 @@ export function DataList({
   params?: Record<string, string | number>;
   view?: (r: Row) => void;
   edit?: (r: Row) => void;
+  actions?: (r: Row) => ReactNode;
   searchable?: boolean;
   local?: boolean;
 }) {
@@ -342,6 +424,11 @@ export function DataList({
       return list(path, { ...params, limit: 20, offset, ...(q ? { q } : {}) });
     },
   });
+  useEffect(() => {
+    if (page.data && offset > 0 && page.data.total <= offset) {
+      setOffset(Math.max(0, Math.floor((page.data.total - 1) / 20) * 20));
+    }
+  }, [offset, page.data]);
   return (
     <>
       <div className="table-tools">
@@ -371,7 +458,7 @@ export function DataList({
                 {columns.map((c) => (
                   <th key={c.key}>{t(c.label)}</th>
                 ))}
-                {(view || edit) && (
+                {(view || edit || actions) && (
                   <th>
                     <span className="sr-only">{t("Details")}</span>
                   </th>
@@ -395,7 +482,7 @@ export function DataList({
                       )}
                     </td>
                   ))}
-                  {(view || edit) && (
+                  {(view || edit || actions) && (
                     <td className="row-actions">
                       {view && (
                         <button className="ghost" onClick={() => view(r)}>
@@ -407,6 +494,7 @@ export function DataList({
                           {t("Edit")}
                         </button>
                       )}
+                      {actions?.(r)}
                     </td>
                   )}
                 </tr>

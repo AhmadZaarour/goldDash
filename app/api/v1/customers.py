@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.authorization import AdminUser
 from app.core.database import get_db
 from app.core.pagination import paginate
 from app.models.customers import Customer
@@ -13,6 +14,7 @@ from app.services.customers_service import (
     get_customer,
     update_customer,
 )
+from app.services.record_removal import remove_unused_record
 
 router = APIRouter(
     prefix="/customers",
@@ -118,3 +120,13 @@ async def update_customer_endpoint(
         ) from exc
 
     return new_customer
+
+
+@router.delete("/{record_id}", status_code=204)
+async def delete_record(
+    record_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    user: AdminUser,
+) -> Response:
+    await remove_unused_record(db, Customer, record_id, "Customer")
+    return Response(status_code=204)

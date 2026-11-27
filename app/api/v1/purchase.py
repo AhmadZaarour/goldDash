@@ -15,8 +15,11 @@ from app.schemas.purchases import (
     PurchaseItemResponse,
     PurchaseResponse,
     PurchaseStockResponse,
+    PurchaseUpdate,
+    PurchaseVoid,
 )
 from app.services.idempotency import IdempotencyKey, claim_operation, complete_operation
+from app.services.purchase_corrections import update_purchase, void_purchase
 from app.services.purchase_service import (
     create_customer_bulk_purchase,
     create_item_purchase,
@@ -116,6 +119,26 @@ async def get_purchase_endpoint(
             detail="purchase not found",
         )
     return purchase
+
+
+@router.patch("/{purchase_id}", response_model=PurchaseResponse)
+async def correct_purchase(
+    purchase_id: int,
+    data: PurchaseUpdate,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    user: AdminUser,
+):
+    return await update_purchase(db, purchase_id, data)
+
+
+@router.post("/{purchase_id}/void", response_model=PurchaseResponse)
+async def void_purchase_endpoint(
+    purchase_id: int,
+    data: PurchaseVoid,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    user: AdminUser,
+):
+    return await void_purchase(db, purchase_id, data.reason, user.id)
 
 
 @router.get(

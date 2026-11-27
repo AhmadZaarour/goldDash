@@ -1,8 +1,31 @@
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.location import Location
+from app.models.location import Location, LocationSettings
 from app.schemas.locations import LocationCreate, LocationUpdate
+from app.services.transaction_validation import require_active_location
+
+
+async def get_default_location(db: AsyncSession) -> int | None:
+    return await db.scalar(
+        select(LocationSettings.location_id)
+        .join(Location, Location.id == LocationSettings.location_id)
+        .where(LocationSettings.id == 1, Location.is_active.is_(True))
+    )
+
+
+async def set_default_location(db: AsyncSession, location_id: int | None) -> None:
+    if location_id is not None:
+        await require_active_location(db, location_id)
+    statement = insert(LocationSettings).values(id=1, location_id=location_id)
+    await db.execute(
+        statement.on_conflict_do_update(
+            index_elements=[LocationSettings.id],
+            set_={"location_id": statement.excluded.location_id},
+        )
+    )
+    await db.commit()
 
 
 async def create_location(

@@ -75,5 +75,6 @@ class CashReconciliation(UnitOwned, Base):
     expected_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2))
     counted_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2))
     variance_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    voided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

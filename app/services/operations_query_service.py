@@ -22,6 +22,7 @@ from app.models import (
     StockTransferRecord,
     SupplierLedgerEntry,
     User,
+    UserRole,
 )
 from app.models.operations import (
     InternalInvoice,
@@ -30,7 +31,9 @@ from app.models.operations import (
     ProductionBatch,
     ProductionPiece,
 )
+from app.models.user import workspace_for_role
 from app.schemas.operations import StaffWorkspaceUpdate
+from app.schemas.user import UserResponse
 
 LEGACY_MODELS = {
     "purchase": Purchase,
@@ -60,8 +63,8 @@ def record(row):
 async def workspaces(user: User):
     allowed = (
         ["showroom", "factory"]
-        if user.role == "admin" or user.workspace_access == "both"
-        else [user.workspace_access]
+        if user.role == UserRole.ADMIN
+        else [workspace_for_role(user.role)]
     )
     return {
         "units": allowed,
@@ -148,14 +151,33 @@ async def internal_invoices(db: AsyncSession, response: Response, limit: int = 5
     rows = await paginate(
         db, select(InternalInvoice).order_by(InternalInvoice.id.desc()), response, limit, offset
     )
-    return [record(row) for row in rows]
+    reversed_ids = await reverse_references(db, InternalInvoice, rows)
+    return [{**record(row), "is_reversed": row.id in reversed_ids} for row in rows]
+
+
+async def reverse_references(db, model, rows):
+    return set(
+        await db.scalars(
+            select(model.reversal_of_id).where(model.reversal_of_id.in_([row.id for row in rows]))
+        )
+    )
 
 
 async def internal_payments(db: AsyncSession, response: Response, limit: int = 50, offset: int = 0):
     rows = await paginate(
         db, select(InternalPayment).order_by(InternalPayment.id.desc()), response, limit, offset
     )
-    return [record(row) for row in rows]
+    documents = await db.execute(
+        select(OperationDocument.id, OperationDocument.note).where(
+            OperationDocument.id.in_([row.operation_id for row in rows])
+        )
+    )
+    notes = dict(documents.tuples().all())
+    reversed_ids = await reverse_references(db, InternalPayment, rows)
+    return [
+        {**record(row), "note": notes[row.operation_id], "is_reversed": row.id in reversed_ids}
+        for row in rows
+    ]
 
 
 async def legacy(
@@ -201,17 +223,53 @@ async def internal_resources(db: AsyncSession, user: User, unit: str, location_i
         return await overview(db, user, location_id)
 
 
-async def staff_workspace(user_id: int, data: StaffWorkspaceUpdate, db: AsyncSession):
-    staff = await db.get(User, user_id)
+async def lock_staff(db: AsyncSession, user_id: int, admin_id: int) -> User:
+    accounts = {
+        row.id: row
+        for row in await db.scalars(
+            select(User)
+            .where(User.id.in_({user_id, admin_id}))
+            .order_by(User.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    }
+    admin = accounts.get(admin_id)
+    if admin is None or not admin.is_active or admin.role != UserRole.ADMIN:
+        raise HTTPException(403, "An active admin account is required")
+    staff = accounts.get(user_id)
     if staff is None:
         raise HTTPException(404, "Staff account not found")
-    staff.workspace_access = data.workspace_access
+    return staff
+
+
+async def staff_workspace(
+    user_id: int, data: StaffWorkspaceUpdate, db: AsyncSession, admin_id: int
+):
+    staff = await lock_staff(db, user_id, admin_id)
+    changes = data.model_dump(exclude_unset=True)
+    role = changes.get("role", staff.role)
+    if user_id == admin_id and (
+        role != UserRole.ADMIN or changes.get("is_active") is False
+    ):
+        raise HTTPException(409, "You cannot deactivate or demote your own admin account")
+    if staff.role != UserRole.ADMIN and role == UserRole.ADMIN:
+        raise HTTPException(409, "Use the administrator provisioning workflow to grant admin access")
+    changes["workspace_access"] = workspace_for_role(role)
+    for field, value in changes.items():
+        setattr(staff, field, value)
     await db.commit()
-    return {"id": staff.id, "workspace_access": staff.workspace_access}
+    return UserResponse.model_validate(staff)
+
+
+async def delete_staff(user_id: int, db: AsyncSession, admin_id: int) -> None:
+    if user_id == admin_id:
+        raise HTTPException(409, "You cannot delete your own admin account")
+    staff = await lock_staff(db, user_id, admin_id)
+    await db.delete(staff)
+    await db.commit()
 
 
 async def staff_list(db: AsyncSession, response: Response, limit: int = 50, offset: int = 0):
-    from app.schemas.user import UserResponse
-
     rows = await paginate(db, select(User).order_by(User.id), response, limit, offset)
     return [UserResponse.model_validate(row).model_dump(mode="json") for row in rows]

@@ -12,7 +12,7 @@ from app.models.inventoryMovement import InventoryMovement
 from app.models.inventoryServicing import InventoryService, ServiceSale
 from app.models.inventoryStock import InventoryStock
 from app.models.itemReturn import ItemReturn
-from app.models.location import Location
+from app.models.location import Location, LocationSettings
 from app.models.operationReceipt import OperationReceipt
 from app.models.operations import (
     InternalInvoice,
@@ -64,6 +64,7 @@ __all__ = [
     "ServiceSale",
     "InventoryStock",
     "Location",
+    "LocationSettings",
     "Product",
     "Purchase",
     "PurchaseBook",

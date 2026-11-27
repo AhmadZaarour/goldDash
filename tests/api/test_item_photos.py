@@ -47,7 +47,9 @@ async def test_phone_photo_persists_normalized_image_and_requires_auth(
     employee = await headers_for(test_session_factory, "employee")
     assert (
         await client.post(
-            f"/api/v1/inventory/items/{item_id}/photo", content=jpeg(), headers=employee
+            f"/api/v1/inventory/items/{item_id}/photo",
+            content=jpeg(),
+            headers={**employee, "X-Business-Unit": "factory"},
         )
     ).status_code == 403
     assert (await client.get(f"/api/v1/inventory/items/{item_id}")).json()["image_url"] == url

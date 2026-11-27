@@ -1,7 +1,9 @@
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints, model_validator
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Annotated, Literal
+
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints, model_validator
+
 
 class CashEntryResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -22,13 +24,18 @@ class CashEntryResponse(BaseModel):
     created_at: datetime
 
 
-class ReconciliationCreate(BaseModel):
+class ReconciliationCounts(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    opening_usd: Decimal = Field(ge=0, decimal_places=2, max_digits=14)
+    counted_usd: Decimal = Field(ge=0, decimal_places=2, max_digits=14)
+
+
+class ReconciliationCreate(ReconciliationCounts):
+    model_config = ConfigDict(extra="ignore")
     idempotency_key: str = Field(min_length=1, max_length=100)
     location_id: int
     from_at: AwareDatetime
     to_at: AwareDatetime
-    opening_usd: Decimal = Field(ge=0, decimal_places=2, max_digits=14)
-    counted_usd: Decimal = Field(ge=0, decimal_places=2, max_digits=14)
 
     @model_validator(mode="after")
     def ordered_period(self):
@@ -47,8 +54,10 @@ class ReconciliationResponse(BaseModel):
     expected_usd: Decimal
     counted_usd: Decimal
     variance_usd: Decimal
+    voided_at: datetime | None = None
     created_by: int
     created_at: datetime
+
 
 class CashSummaryResponse(BaseModel):
     service_received_usd: Decimal
@@ -67,9 +76,9 @@ class CashSummaryResponse(BaseModel):
     production_costs_usd: Decimal
     net_usd: Decimal
 
-class CashOutflowCreate(BaseModel):
-    location_id: int = Field(gt=0)
-    kind: Literal["expense", "withdrawal"]
+
+class CashOutflowDetails(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     amount_usd: Decimal = Field(gt=0, decimal_places=2, max_digits=14)
     description: Annotated[
         str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)
@@ -77,3 +86,9 @@ class CashOutflowCreate(BaseModel):
     category: (
         Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=50)] | None
     ) = None
+
+
+class CashOutflowCreate(CashOutflowDetails):
+    model_config = ConfigDict(extra="ignore")
+    location_id: int = Field(gt=0)
+    kind: Literal["expense", "withdrawal"]

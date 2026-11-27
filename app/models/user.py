@@ -13,6 +13,14 @@ class UserRole(StrEnum):
     CASHIER = "cashier"
 
 
+def workspace_for_role(role: UserRole | str) -> str:
+    return {
+        UserRole.ADMIN: "both",
+        UserRole.EMPLOYEE: "factory",
+        UserRole.CASHIER: "showroom",
+    }[role]
+
+
 class User(Base):
     __tablename__ = "users"
 

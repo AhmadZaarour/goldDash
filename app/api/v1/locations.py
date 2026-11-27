@@ -4,22 +4,49 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.authorization import AdminUser
 from app.core.database import get_db
 from app.core.dependencies import require_role
 from app.core.pagination import paginate
 from app.models.location import Location
 from app.models.user import UserRole
-from app.schemas.locations import LocationCreate, LocationResponse, LocationUpdate
+from app.schemas.locations import DefaultLocation, LocationCreate, LocationResponse, LocationUpdate
 from app.services.locations_service import (
     create_location,
+    get_default_location,
     get_location,
+    set_default_location,
     update_location,
 )
+from app.services.record_removal import remove_unused_record
 
 router = APIRouter(
     prefix="/locations",
     tags=["Locations"],
 )
+
+
+@router.get("/default", response_model=DefaultLocation)
+async def get_default_location_endpoint(
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> DefaultLocation:
+    return DefaultLocation(location_id=await get_default_location(db))
+
+
+@router.put(
+    "/default",
+    dependencies=[Depends(require_role(UserRole.ADMIN))],
+    response_model=DefaultLocation,
+)
+async def set_default_location_endpoint(
+    data: DefaultLocation,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> DefaultLocation:
+    try:
+        await set_default_location(db, data.location_id)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    return data
 
 
 @router.post(
@@ -114,3 +141,13 @@ async def list_records(
     if q:
         statement = statement.where(Location.name.icontains(q, autoescape=True))
     return await paginate(db, statement, response, limit, offset)
+
+
+@router.delete("/{record_id}", status_code=204)
+async def delete_record(
+    record_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    user: AdminUser,
+) -> Response:
+    await remove_unused_record(db, Location, record_id, "Location")
+    return Response(status_code=204)

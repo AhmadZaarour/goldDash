@@ -44,12 +44,24 @@ async def test_register_returns_created_user(client: AsyncClient):
     assert data["is_active"] is True
 
 
-async def test_login_returns_tokens(client: AsyncClient):
+@pytest.mark.parametrize(
+    ("field", "source"),
+    [
+        ("email", "email"),
+        ("username", "username"),
+        ("identifier", "email"),
+        ("identifier", "username"),
+    ],
+)
+async def test_login_returns_tokens(client: AsyncClient, field: str, source: str):
     payload = await register_user(client)
+    value = payload[source]
+    if field == "identifier":
+        value = f" {value.replace('@example.com', '@EXAMPLE.COM')} "
 
     response = await client.post(
         "/api/v1/auth/login",
-        json={"email": payload["email"], "password": payload["password"]},
+        json={field: value, "password": payload["password"]},
     )
 
     assert response.status_code == 200
@@ -70,6 +82,51 @@ async def test_login_rejects_invalid_password(client: AsyncClient):
     assert response.status_code == 401
     assert response.json() == {"detail": "Invalid email or password"}
     assert response.headers["www-authenticate"] == "Bearer"
+
+
+async def test_login_prioritizes_the_email_account_for_an_ambiguous_identifier(client: AsyncClient):
+    owner = await register_user(client)
+    overlapping = user_payload()
+    overlapping["username"] = owner["email"]
+    overlapping["password"] += uuid4().hex
+    assert (await client.post("/api/v1/auth/register", json=overlapping)).status_code == 200
+
+    login = await client.post(
+        "/api/v1/auth/login",
+        json={"identifier": owner["email"], "password": owner["password"]},
+    )
+    assert login.status_code == 200
+    me = await client.get(
+        "/api/v1/auth/me",
+        headers={"Authorization": f"Bearer {login.json()['access_token']}"},
+    )
+    assert me.json()["email"] == owner["email"]
+
+    wrong_account = await client.post(
+        "/api/v1/auth/login",
+        json={"identifier": owner["email"], "password": overlapping["password"]},
+    )
+    assert wrong_account.status_code == 401
+    assert wrong_account.json() == {"detail": "Invalid username, email or password"}
+
+    explicit_username = await client.post(
+        "/api/v1/auth/login",
+        json={"username": overlapping["username"], "password": overlapping["password"]},
+    )
+    assert explicit_username.status_code == 200
+    me = await client.get(
+        "/api/v1/auth/me",
+        headers={"Authorization": f"Bearer {explicit_username.json()['access_token']}"},
+    )
+    assert me.json()["email"] == overlapping["email"]
+
+
+async def test_login_requires_one_identifier_field(client: AsyncClient):
+    response = await client.post(
+        "/api/v1/auth/login",
+        json={"email": "user@example.com", "username": "user", "password": "unused"},
+    )
+    assert response.status_code == 422
 
 
 async def test_refresh_rotates_token(client: AsyncClient):

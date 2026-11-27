@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.goldPurities import GoldPurity
 from app.schemas.goldPurities import GoldPurityCreate, GoldPurityUpdate, GoldPurityResponse
+from app.services.record_removal import is_referenced
 
 
 async def create_gold_purity(
@@ -66,10 +67,24 @@ async def update_gold_purity(
     gold_purity: GoldPurity,
     gold_purity_data: GoldPurityUpdate,
 ) -> GoldPurity:
+    gold_purity = await db.scalar(
+        select(GoldPurity)
+        .where(GoldPurity.id == gold_purity.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if gold_purity is None:
+        raise ValueError("Gold purity no longer exists")
 
     update_data = gold_purity_data.model_dump(
         exclude_unset=True,
     )
+    changes_purity = any(
+        field in update_data and update_data[field] != getattr(gold_purity, field)
+        for field in ("purity", "karat")
+    )
+    if changes_purity and await is_referenced(db, GoldPurity, gold_purity.id):
+        raise ValueError("Karat and purity cannot change after this purity has been used")
 
     if "name" in update_data:
         existing_gold_purity = await db.scalar(

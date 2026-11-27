@@ -73,13 +73,13 @@ export async function renew(): Promise<boolean> {
   });
   return refreshFlight;
 }
-export async function login(email: string, password: string) {
+export async function login(identifier: string, password: string) {
   const r = await fetch(base + "/api/v1/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ identifier, password }),
   });
-  if (!r.ok) throw new ApiError(r.status, "Invalid email or password");
+  if (!r.ok) throw new Error("Invalid username, email or password");
   save(await r.json());
   return request<User>("/auth/me");
 }

@@ -313,7 +313,7 @@ async def test_generated_barcodes_retry_collisions_without_losing_purchase(
 
     async with test_session_factory() as db:
         existing = await db.get(InventoryItem, inventory["item_id"])
-        existing.barcode = "GI" + "A" * 16
+        existing.barcode = "GI" + "A" * 8
         line = await db.get(PurchaseItem, inventory["line_id"])
         new_line = PurchaseItem(
             purchase_id=line.purchase_id,
@@ -326,9 +326,9 @@ async def test_generated_barcodes_retry_collisions_without_losing_purchase(
         )
         db.add(new_line)
         await db.flush()
-        values = iter(["a" * 16, "b" * 16])
+        values = iter([existing.barcode, "GI" + "B" * 8])
         monkeypatch.setattr(
-            "app.services.inventory_service.secrets.token_hex", lambda _: next(values)
+            "app.services.inventory_service.generate_barcode", lambda _: next(values)
         )
         item = await create_item(
             db,
@@ -338,7 +338,7 @@ async def test_generated_barcodes_retry_collisions_without_losing_purchase(
                 status="in_stock",
             ),
         )
-        assert item.barcode == "GI" + "B" * 16
+        assert item.barcode == "GI" + "B" * 8
         await db.commit()
-        assert (await db.get(InventoryItem, existing.id)).barcode == "GI" + "A" * 16
+        assert (await db.get(InventoryItem, existing.id)).barcode == "GI" + "A" * 8
         assert await db.scalar(select(func.count()).select_from(InventoryItem)) == 2

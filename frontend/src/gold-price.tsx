@@ -1,10 +1,12 @@
-import { useState, useRef } from "react";
+import { useState, useRef, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Decimal from "decimal.js";
 import { get, Operation, type Row } from "./api";
 import { useLanguage } from "./i18n";
 import { useCan } from "./session";
 import { Busy, ErrorBox, money, date, Modal, Form } from "./ui";
+
+const quoteRefreshInterval = 30_000;
 
 export interface GoldQuote {
   ounce_usd: string;
@@ -13,45 +15,78 @@ export interface GoldQuote {
   gram_18k_usd: string;
   fetched_at: string;
   stale: boolean;
+  quote_mode?: "live" | "manual";
   market_ounce_usd?: string;
   ounce_adjustment_usd?: string;
   applied_ounce_usd?: string;
   customer_buy?: GoldQuote & { available: boolean; error?: string };
   customer_sell?: GoldQuote & { available: boolean; error?: string };
 }
+
+type GoldPriceSettings = {
+  buy_adjustment_usd: string;
+  sell_adjustment_usd: string;
+  manual_ounce_usd?: string | null;
+};
+
+function useGoldPriceSettings() {
+  return useQuery({
+    queryKey: ["gold-price-settings"],
+    queryFn: () => get<GoldPriceSettings>("/gold-price/settings"),
+  });
+}
+
 export function useGoldQuote(enabled = true) {
   return useQuery({
     queryKey: ["gold-price"],
     queryFn: () => get<GoldQuote>("/gold-price"),
     enabled,
-    staleTime: 30_000,
-    refetchInterval: 30_000,
+    staleTime: quoteRefreshInterval,
+    refetchInterval: quoteRefreshInterval,
   });
 }
+
+export function isFreshQuote(quote: GoldQuote | undefined): quote is GoldQuote {
+  return (
+    !!quote &&
+    !quote.stale &&
+    (quote.quote_mode === "manual" ||
+      Date.now() - Date.parse(quote.fetched_at) < quoteRefreshInterval)
+  );
+}
+
 export function GoldPrice() {
   const { t } = useLanguage();
   const can = useCan();
   const [editing, setEditing] = useState(false);
+  const [editingQuoteMode, setEditingQuoteMode] = useState(false);
   const [saved, setSaved] = useState(false);
   const quote = useGoldQuote();
-  const stale =
-    quote.data?.stale ||
-    quote.isError ||
-    (quote.data && Date.now() - Date.parse(quote.data.fetched_at) >= 30_000);
+  const manual = !quote.isError && quote.data?.quote_mode === "manual";
+  const stale = quote.isError || !isFreshQuote(quote.data);
   return (
     <section className="panel">
-      <h2>{t("Live gold price")}</h2>
+      <h2>{t(manual ? "Manual gold price" : "Live gold price")}</h2>
       {can.admin && (
-        <button
-          type="button"
-          className="secondary"
-          onClick={() => {
-            setSaved(false);
-            setEditing(true);
-          }}
-        >
-          {t("Customer price adjustments")}
-        </button>
+        <div className="actions">
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => {
+              setSaved(false);
+              setEditing(true);
+            }}
+          >
+            {t("Customer price adjustments")}
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => setEditingQuoteMode(true)}
+          >
+            {t("Gold quote settings")}
+          </button>
+        </div>
       )}
       {saved && <p role="status">{t("Customer price adjustments saved")}</p>}
       {editing && (
@@ -65,6 +100,14 @@ export function GoldPrice() {
               setSaved(true);
             }}
           />
+        </Modal>
+      )}
+      {editingQuoteMode && (
+        <Modal
+          title="Gold quote settings"
+          close={() => setEditingQuoteMode(false)}
+        >
+          <QuoteModeSettings done={() => setEditingQuoteMode(false)} />
         </Modal>
       )}
       {quote.isLoading && <Busy />}
@@ -153,8 +196,14 @@ export function GoldPrice() {
             </table>
           </div>
           <p role="status">
-            {t(stale ? "Stale quote" : "Latest quote")} ·{" "}
-            {date(quote.data.fetched_at)}
+            {t(
+              manual
+                ? "Manual gold quote"
+                : stale
+                  ? "Stale quote"
+                  : "Latest quote",
+            )}{" "}
+            · {date(quote.data.fetched_at)}
           </p>
         </>
       )}
@@ -186,16 +235,100 @@ export function customerQuote(
   return profile?.available === false ? undefined : profile || quote;
 }
 
+function QuoteModeSettings({ done }: { done: () => void }) {
+  const settings = useGoldPriceSettings();
+  return (
+    <>
+      <ErrorBox error={settings.error} />
+      {settings.isLoading && <Busy />}
+      {settings.data && (
+        <QuoteModeForm
+          initialOunce={settings.data.manual_ounce_usd}
+          done={done}
+        />
+      )}
+    </>
+  );
+}
+
+function QuoteModeForm({
+  initialOunce,
+  done,
+}: {
+  initialOunce: string | null | undefined;
+  done: () => void;
+}) {
+  const { t } = useLanguage();
+  const q = useQueryClient();
+  const op = useRef(new Operation());
+  const [manual, setManual] = useState(!!initialOunce);
+  const [ounce, setOunce] = useState(initialOunce ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>();
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setError(undefined);
+    try {
+      const settings = await op.current.send<GoldPriceSettings>(
+        "/gold-price/quote-mode",
+        { manual_ounce_usd: manual ? ounce : null },
+        "PUT",
+      );
+      q.setQueryData(["gold-price-settings"], settings);
+      void q.resetQueries({ queryKey: ["gold-price"] });
+      done();
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form onSubmit={submit}>
+      <fieldset disabled={busy}>
+        <div className="form-grid">
+          <label>
+            {t("Quote source")}
+            <select
+              value={manual ? "manual" : "live"}
+              onChange={(event) => setManual(event.target.value === "manual")}
+            >
+              <option value="live">{t("Refresh live quote")}</option>
+              <option value="manual">{t("Use a manual quote")}</option>
+            </select>
+          </label>
+          {manual && (
+            <label>
+              {t("Manual 24K ounce (USD)")}
+              <input
+                type="number"
+                min="0.000001"
+                step="0.000001"
+                required
+                value={ounce}
+                onChange={(event) => setOunce(event.target.value)}
+              />
+            </label>
+          )}
+        </div>
+      </fieldset>
+      <ErrorBox error={error} />
+      <footer>
+        <button type="submit" disabled={busy}>
+          {t(busy ? "Working…" : "Save")}
+        </button>
+      </footer>
+    </form>
+  );
+}
+
 function PriceSettingsForm({ done }: { done: () => void }) {
   const { t } = useLanguage();
   const q = useQueryClient();
-  const settings = useQuery({
-    queryKey: ["gold-price-settings"],
-    queryFn: () =>
-      get<{ buy_adjustment_usd: string; sell_adjustment_usd: string }>(
-        "/gold-price/settings",
-      ),
-  });
+  const settings = useGoldPriceSettings();
   const op = useRef(new Operation());
   return (
     <>

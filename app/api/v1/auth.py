@@ -59,14 +59,20 @@ async def login(
 
     user = await authenticate_user(
         db,
-        data.email,
         data.password,
+        email=data.email,
+        username=data.username,
+        identifier=data.identifier,
     )
 
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password",
+            detail=(
+                "Invalid email or password"
+                if data.email is not None
+                else "Invalid username, email or password"
+            ),
             headers={
                 "WWW-Authenticate": "Bearer",
             },

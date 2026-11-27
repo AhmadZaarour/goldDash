@@ -75,3 +75,8 @@ class LedgerEntryResponse(BaseModel):
 class ReversalCreate(BaseModel):
     idempotency_key: str = Field(min_length=1, max_length=80)
     reason: str = Field(min_length=1, max_length=500)
+
+
+class SettlementNoteUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    note: str | None = Field(max_length=500)

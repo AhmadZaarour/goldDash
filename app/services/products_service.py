@@ -79,7 +79,9 @@ async def update_product(
     if product is None:
         raise ValueError("Product no longer exists")
     update_data = product_data.model_dump(exclude_unset=True)
-    if "inventory_type" in update_data and update_data["inventory_type"] != product.inventory_type:
+    changed_type = update_data.get("inventory_type", product.inventory_type) != product.inventory_type
+    changed_purity = update_data.get("purity_id", product.purity_id) != product.purity_id
+    if changed_type or changed_purity:
         with in_workspace(None):
             item_reference = await db.scalar(
                 select(PurchaseItem.id).where(PurchaseItem.product_id == product.id).limit(1)
@@ -96,7 +98,7 @@ async def update_product(
                 or production_reference is not None
             ):
                 raise ValueError(
-                    "Inventory type cannot change after the product has been purchased"
+                    "Inventory type or purity cannot change after the product has been used"
                 )
 
     if "sku" in update_data:

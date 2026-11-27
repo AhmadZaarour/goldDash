@@ -24,7 +24,7 @@ async function save() {
 try {
   await page.goto(base);
   await page
-    .getByLabel("Email", { exact: true })
+    .getByLabel("Username or email", { exact: true })
     .fill(process.env.UI_TEST_EMAIL);
   await page
     .getByLabel("Password", { exact: true })

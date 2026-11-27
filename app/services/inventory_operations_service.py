@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.authorization import CashierUser, EmployeeUser
+from app.core.authorization import AdminUser, CashierUser
 from app.core.workspace import active_unit
 from app.models import (
     GoldPurity,
@@ -31,7 +31,7 @@ async def active_location(db, location_id):
     except ValueError as error:
         raise HTTPException(409, str(error)) from error
 
-async def transfer_item_service(item_id: int, data: ItemTransfer, db: AsyncSession, user: EmployeeUser) -> dict[str, int | str]:
+async def transfer_item_service(item_id: int, data: ItemTransfer, db: AsyncSession, user: AdminUser) -> dict[str, int | str]:
     await active_location(db, data.location_id)
     item = await db.scalar(
         select(InventoryItem).where(InventoryItem.id == item_id).with_for_update(of=InventoryItem)
@@ -111,7 +111,7 @@ async def return_item_service(data: ItemReturnCreate, db: AsyncSession, user: Ca
     return {"id": record.id, "inventory_item_id": item.id, "status": item.status}
 
 async def transfer_stock_service(
-    data: StockTransfer, db: AsyncSession, user: EmployeeUser, idempotency_key: IdempotencyKey
+    data: StockTransfer, db: AsyncSession, user: AdminUser, idempotency_key: IdempotencyKey
 ) -> StockTransferResponse:
     receipt, replayed = await claim_operation(db, user.id, "stock:transfer", idempotency_key, data)
     if replayed:

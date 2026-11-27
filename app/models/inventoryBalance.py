@@ -43,7 +43,7 @@ class InventoryBalance(UnitOwned, Base):
     total_weight: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False, default=0)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
+        server_default=func.clock_timestamp(),
+        onupdate=func.clock_timestamp(),
         nullable=False,
     )

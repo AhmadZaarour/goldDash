@@ -47,3 +47,7 @@ class Purchase(CustomerPriceSnapshot, UnitOwned, Base):
     location_id: Mapped[int] = mapped_column(
         ForeignKey("locations.id"),
     )
+
+    voided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    voided_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    void_reason: Mapped[str | None] = mapped_column(String(500))

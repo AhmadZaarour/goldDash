@@ -5,9 +5,11 @@ import { useCan } from "./session";
 import { useLanguage } from "./i18n";
 import { BarcodeScanButton } from "./barcode-scanner";
 import { normalizeBarcode } from "./barcode-camera";
+import { useLocationChoice } from "./location-settings";
 import {
   Badge,
   DataList,
+  DeleteRecordButton,
   ErrorBox,
   Form,
   Modal,
@@ -129,20 +131,21 @@ function ServiceCheckout({
 }) {
   const { t } = useLanguage();
   const [service, setService] = useState<Service | undefined>(initial);
-  const [location, setLocation] = useState("");
   const [cost, setCost] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>();
   const submitting = useRef(false);
   const op = useRef(new Operation());
   const locations = useQuery({
-    queryKey: ["list", "service-locations"],
+    queryKey: ["options", "locations"],
     queryFn: () => all("/locations"),
   });
-  useEffect(() => {
-    const active = locations.data?.filter((r) => r.is_active !== false);
-    if (active?.length === 1) setLocation(String(active[0].id));
-  }, [locations.data]);
+  const activeLocations = locations.data?.filter(
+    (row) => row.is_active !== false,
+  );
+  const [location, setLocation] = useLocationChoice(
+    activeLocations?.length === 1 ? String(activeLocations[0].id) : "",
+  );
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (
@@ -289,8 +292,14 @@ export function Servicing() {
   const can = useCan();
   const q = useQueryClient();
   const [editing, setEditing] = useState<Service | null | undefined>();
+  const payment = editing?.sale;
+  const [editingPayment, setEditingPayment] = useState(false);
   const [looking, setLooking] = useState(false);
   const op = useRef(new Operation());
+  function closeDetails() {
+    setEditing(undefined);
+    setEditingPayment(false);
+  }
   return (
     <>
       <div className="page-head">
@@ -334,13 +343,24 @@ export function Servicing() {
             { key: "notes", label: "Notes" },
           ]}
           view={(r) => setEditing(r)}
+          actions={
+            can.admin
+              ? (row) =>
+                  !row.sale && (
+                    <DeleteRecordButton
+                      path={`/servicing/${row.id}`}
+                      name={text(row.barcode)}
+                    />
+                  )
+              : undefined
+          }
         />
       </section>
       {editing !== undefined && (
         <Modal
           key={editing?.id ?? "new"}
           title={editing ? "Service details" : "New service"}
-          close={() => setEditing(undefined)}
+          close={closeDetails}
         >
           {editing && (
             <>
@@ -367,41 +387,97 @@ export function Servicing() {
               )}
             </>
           )}
-          {can.employee && !editing?.sale ? (
-            <Form
-              fields={fields}
-              initial={
-                editing
-                  ? {
-                      status: String(editing.status),
-                      notes: String(editing.notes || ""),
-                    }
-                  : { status: "in_progress", notes: "" }
-              }
-              submit={async (v) => {
-                const result = await op.current.send<Service>(
-                  "/servicing" + (editing ? `/${editing.id}` : ""),
-                  { status: v.status, notes: v.notes || null },
-                  editing ? "PATCH" : "POST",
-                  !editing,
-                );
-                setEditing(result);
-              }}
-              done={() => {
-                void q.invalidateQueries();
-              }}
-            />
-          ) : (
-            <p>{text(editing?.notes)}</p>
-          )}
+          {!editingPayment &&
+            ((can.employee && !payment) || can.admin ? (
+              <Form
+                fields={
+                  payment ? fields.filter(({ key }) => key === "notes") : fields
+                }
+                initial={
+                  editing
+                    ? {
+                        status: String(editing.status),
+                        notes: String(editing.notes || ""),
+                      }
+                    : { status: "in_progress", notes: "" }
+                }
+                submit={async (v) => {
+                  const result = await op.current.send<Service>(
+                    "/servicing" + (editing ? `/${editing.id}` : ""),
+                    {
+                      ...(payment ? {} : { status: v.status }),
+                      notes: v.notes || null,
+                    },
+                    editing ? "PATCH" : "POST",
+                    !editing,
+                  );
+                  setEditing(result);
+                }}
+                done={() => {
+                  void q.invalidateQueries();
+                }}
+              />
+            ) : (
+              <p>{text(editing?.notes)}</p>
+            ))}
+          {can.admin &&
+            editing &&
+            payment &&
+            (editingPayment ? (
+              <Form
+                fields={[
+                  {
+                    key: "cost",
+                    label: "Amount (USD)",
+                    type: "money",
+                    required: true,
+                  },
+                ]}
+                initial={{ cost: String(payment.amount_usd) }}
+                submit={async ({ cost }) => {
+                  const sale = await op.current.send<Row>(
+                    `/servicing/sales/${payment.id}`,
+                    { cost },
+                    "PATCH",
+                  );
+                  setEditing({ ...editing, sale });
+                }}
+                done={() => {
+                  setEditingPayment(false);
+                  void q.invalidateQueries();
+                }}
+              >
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => setEditingPayment(false)}
+                >
+                  {t("Cancel")}
+                </button>
+              </Form>
+            ) : (
+              <div className="actions">
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => setEditingPayment(true)}
+                >
+                  {t("Edit payment")}
+                </button>
+                <DeleteRecordButton
+                  path={`/servicing/sales/${payment.id}`}
+                  name={text(editing.barcode)}
+                  label="Void service payment"
+                  confirmation="Void this payment and remove its cash entry?"
+                  done={() => setEditing({ ...editing, sale: null })}
+                />
+              </div>
+            ))}
           {can.cashier &&
             editing &&
             !editing.sale &&
             editing.status === "finished" && (
-              <ServiceSaleButton
-                initial={editing}
-                onPaid={() => setEditing(undefined)}
-              />
+              <ServiceSaleButton initial={editing} onPaid={closeDetails} />
             )}
         </Modal>
       )}

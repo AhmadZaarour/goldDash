@@ -3,17 +3,18 @@ import re
 import pytest
 from sqlalchemy import select
 
-from app.models import Purchase, PurchaseItem
+from app.models import InventoryItem, Purchase, PurchaseItem
 from tests.api.test_auth import login_user
 from tests.api.test_purchase import test_create_purchase as create_purchase
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
+GENERATED_BARCODE = re.compile(r"GI[0-9A-HJKMNP-TV-Z]{8}")
 
 
 async def test_purchase_generates_unique_item_barcodes(client, test_session_factory):
     response, _, inventory = await create_purchase(client, test_session_factory)
     first = inventory.json()
-    assert re.fullmatch(r"GI[0-9A-F]{16}", first["barcode"])
+    assert GENERATED_BARCODE.fullmatch(first["barcode"])
     tokens = await login_user(client)
     headers = {"Authorization": f"Bearer {tokens['access_token']}"}
     async with test_session_factory() as db:
@@ -43,7 +44,15 @@ async def test_purchase_generates_unique_item_barcodes(client, test_session_fact
     assert len(items) == 2
     codes = [item["barcode"] for item in items]
     assert len(set(codes)) == 2
-    assert all(re.fullmatch(r"GI[0-9A-F]{16}", code) for code in codes)
+    assert all(GENERATED_BARCODE.fullmatch(code) for code in codes)
     assert (await client.get(f"/api/v1/inventory/items/{first['id']}")).json()["barcode"] == first[
         "barcode"
     ]
+    legacy_barcode = "GI" + "A" * 16
+    async with test_session_factory() as db:
+        item = await db.get(InventoryItem, first["id"])
+        item.barcode = legacy_barcode
+        await db.commit()
+    legacy = await client.get("/api/v1/inventory/items", params={"barcode": legacy_barcode})
+    assert legacy.status_code == 200
+    assert [item["id"] for item in legacy.json()] == [first["id"]]

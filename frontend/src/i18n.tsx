@@ -11,6 +11,28 @@ const en: Record<string, string> = {
   service_sale: "Service sale",
 };
 const ar: Record<string, string> = {
+  "Delete record": "حذف السجل",
+  "Permanently delete this record?": "هل تريد حذف هذا السجل نهائياً؟",
+  "Edit staff account": "تعديل حساب الموظف",
+  "Edit note": "تعديل الملاحظة",
+  "Edit production batch": "تعديل دفعة الإنتاج",
+  "Reverse production batch": "عكس دفعة الإنتاج",
+  "Reversing the batch restores its raw gold and production costs.":
+    "يؤدي عكس الدفعة إلى إعادة الذهب الخام وتكاليف الإنتاج.",
+  "Edit step": "تعديل الخطوة",
+  "Reverse step": "عكس الخطوة",
+  "Reversing this step restores the previous measurements and refunds its cost to the drawer.":
+    "يؤدي عكس هذه الخطوة إلى استعادة القياسات السابقة وإعادة تكلفتها إلى الصندوق.",
+  "Reverse transaction": "عكس المعاملة",
+  "Reversing creates an offsetting entry and restores the related balances.":
+    "ينشئ العكس قيداً مقابلاً ويعيد الأرصدة المرتبطة.",
+  "Gold quote settings": "إعدادات سعر الذهب",
+  "Manual gold price": "سعر الذهب اليدوي",
+  "Manual gold quote": "سعر الذهب المحدد يدوياً",
+  "Quote source": "مصدر السعر",
+  "Refresh live quote": "تحديث السعر المباشر",
+  "Use a manual quote": "استخدام سعر يدوي",
+  "Manual 24K ounce (USD)": "سعر أونصة عيار 24 يدوياً (دولار)",
   "Customer price adjustments": "تعديلات سعر الذهب للعملاء",
   "Customer price adjustments saved": "تم حفظ تعديلات سعر الذهب للعملاء",
   "Customer gold prices": "أسعار الذهب للعملاء",
@@ -193,6 +215,12 @@ const ar: Record<string, string> = {
   active: "نشط",
   reversed: "معكوس",
   voided: "ملغى",
+  purchase_void: "إلغاء شراء",
+  Posted: "مسجّل",
+  "Edit purchase": "تعديل الشراء",
+  "Void purchase": "إلغاء الشراء",
+  "Voiding cancels the stock and payment effects and keeps the original purchase in history.":
+    "يُلغي هذا الإجراء أثر الشراء على المخزون والمدفوعات، مع الاحتفاظ بالعملية الأصلية في السجل.",
   "Opening balance": "رصيد افتتاحي",
   "Capital addition": "إضافة رأس مال",
   "Balance adjustment": "تسوية رصيد",
@@ -230,8 +258,8 @@ const ar: Record<string, string> = {
     "أسند هذا السجل وسجلاته المالية المرتبطة بعد مراجعة ملكيتها فقط.",
 
   "Gold charge (24K equivalent g)": "استحقاق الذهب (غ مكافئ لعيار ٢٤)",
-  "Gold prices are calculated from the live quote when the trade is confirmed.":
-    "تُحسب أسعار الذهب من السعر المباشر عند تأكيد العملية.",
+  "Gold prices are calculated from the active quote when you confirm the trade.":
+    "تُحسب أسعار الذهب من السعر المعتمد عند تأكيد العملية.",
   "Enter 0 USD for opening stock. No cash payment or supplier debt is recorded.":
     "أدخل 0 دولار للمخزون الافتتاحي. لا تُسجَّل دفعة نقدية أو مديونية للمورد.",
   "Calculated gold price / gram": "سعر الذهب المحسوب للغرام",
@@ -266,6 +294,8 @@ const ar: Record<string, string> = {
   "Base cost (USD)": "التكلفة الأساسية (دولار)",
   "Cash equivalent at purchase gold price, including gold charge and supplier making charge.":
     "القيمة النقدية بسعر الذهب عند الشراء، شاملة استحقاق الذهب ومصنعية المورد.",
+  "Gold value at the current selling quote plus the piece’s making charge.":
+    "قيمة الذهب بسعر البيع المعتمد حالياً مضافاً إليها مصنعية القطعة.",
   "Development tools": "أدوات التطوير",
   "Clear business data from this disposable development database. Staff accounts and login access are preserved.":
     "امسح بيانات العمل من قاعدة بيانات التطوير المؤقتة. تبقى حسابات الموظفين وإمكانية تسجيل الدخول محفوظة.",
@@ -345,6 +375,8 @@ const ar: Record<string, string> = {
   Catalog: "الكتالوج",
   Servicing: "الصيانة",
   "Staff accounts": "حسابات الموظفين",
+  "Cashiers use Showroom. Employees use Factory.":
+    "يعمل أمناء الصندوق في المعرض، ويعمل الموظفون في المصنع.",
   "Sign out": "تسجيل الخروج",
   Search: "بحث",
   Save: "حفظ",
@@ -382,6 +414,11 @@ const ar: Record<string, string> = {
   Type: "النوع",
   Status: "الحالة",
   Location: "الموقع",
+  "Default location": "الموقع الافتراضي",
+  "No default location": "بلا موقع افتراضي",
+  "Destination location": "موقع الوجهة",
+  "Preselect this location on new entries in both workspaces.":
+    "اختيار هذا الموقع تلقائياً عند إنشاء سجلات جديدة في مساحتي العمل.",
   Supplier: "المورّد",
   Customer: "العميل",
   Product: "المنتج",
@@ -469,6 +506,8 @@ const ar: Record<string, string> = {
   cashier: "أمين صندوق",
   employee: "موظف",
   Username: "اسم المستخدم",
+  "Username or email": "اسم المستخدم أو البريد الإلكتروني",
+  "Invalid username, email or password": "اسم المستخدم أو البريد الإلكتروني أو كلمة المرور غير صحيحة",
   "Cost (USD)": "التكلفة (دولار)",
   received_service: "مستلم",
   completed: "مكتمل",
@@ -527,6 +566,17 @@ const ar: Record<string, string> = {
     "لم يتم العثور على القطعة في هذا الموقع.",
   "This action records a real cash movement.":
     "هذا الإجراء يسجّل حركة نقد فعلية.",
+  "Edit cash outflow": "تعديل الصرف النقدي",
+  "Edit reconciliation": "تعديل تسوية الصندوق",
+  "Void reconciliation": "إلغاء تسوية الصندوق",
+  "Void this reconciliation and reopen its period for corrections?":
+    "هل تريد إلغاء هذه التسوية وإعادة فتح فترتها للتصحيح؟",
+  "Edit payment": "تعديل الدفع",
+  "Void service payment": "إلغاء دفعة الصيانة",
+  "Void this payment and remove its cash entry?":
+    "هل تريد إلغاء هذه الدفعة وإزالة قيدها النقدي؟",
+  Closed: "مغلق",
+  Voided: "ملغى",
   expense: "مصروف",
   withdrawal: "سحب",
   sale: "بيع",

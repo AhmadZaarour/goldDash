@@ -246,7 +246,7 @@ async def test_cashier_customer_bulk_is_atomic_retryable_and_has_no_debt(
         await client.post(
             "/api/v1/purchases/customer-stock",
             json=body,
-            headers={**employee, "Idempotency-Key": "employee"},
+            headers={**employee, "X-Business-Unit": "factory", "Idempotency-Key": "employee"},
         )
     ).status_code == 403
 

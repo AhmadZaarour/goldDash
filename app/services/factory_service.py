@@ -22,7 +22,7 @@ from app.models.operations import (
 )
 from app.schemas.inventory import InventoryItemCreate
 from app.services.gold_conversion import canonical_purity, grams24, purchase_factor
-from app.services.gold_price import get_quote, require_fresh_quote
+from app.services.gold_price import effective_quote, get_quote, require_fresh_quote
 from app.services.inventory_service import create_item
 from app.services.operations_query_service import record
 from app.services.product_inventory_type import validate_purchase_product
@@ -221,11 +221,12 @@ async def start_production(db, data, user_id):
     }
 
 
-async def locked_batch(db, batch_id):
+async def locked_batch(db, batch_id, *, change_resources=True):
     batch = await db.get(ProductionBatch, batch_id)
     if batch is None or batch.tracking_mode != "weight":
         raise ValueError("Weight production batch not found")
-    await lock_locations(db, batch.location_id)
+    if change_resources:
+        await lock_locations(db, batch.location_id)
     return await db.scalar(
         select(ProductionBatch)
         .where(ProductionBatch.id == batch_id)
@@ -234,12 +235,23 @@ async def locked_batch(db, batch_id):
     )
 
 
+def step_matches(step, timestamp):
+    return datetime.fromisoformat(step["created_at"]) == timestamp
+
+
+def has_expected_steps(steps, data):
+    return len(steps) == data.expected_step and (
+        data.expected_step_created_at is None
+        or (steps and step_matches(steps[-1], data.expected_step_created_at))
+    )
+
+
 async def add_step(db, batch_id, data, user_id):
     batch = await locked_batch(db, batch_id)
     if batch.status != "in_progress":
         raise ValueError("Only an in-progress batch can receive production steps")
     steps = batch.details["steps"]
-    if len(steps) != data.expected_step:
+    if not has_expected_steps(steps, data):
         raise ValueError("Production steps changed; reload the batch before recording another step")
     if len(steps) >= 100:
         raise ValueError("A batch supports at most 100 production steps")
@@ -311,7 +323,7 @@ async def finish_production(db, batch_id, data, user_id):
     steps = batch.details["steps"]
     if batch.status != "in_progress" or not steps:
         raise ValueError("Record at least one step in an in-progress batch before finishing")
-    if data.expected_step != len(steps):
+    if not has_expected_steps(steps, data):
         raise ValueError("Production steps changed; reload before finishing the batch")
     outputs = steps[-1]["outputs"]
     scrap = [row for step in steps for row in step["scrap"]]
@@ -362,6 +374,62 @@ async def finish_production(db, batch_id, data, user_id):
         "kind": "production_finished",
         "message": "Production finished; gold added to finished stock",
     }
+
+
+async def update_step_details(db, batch_id, position, data):
+    batch = await locked_batch(db, batch_id, change_resources=False)
+    if batch.status not in {"active", "in_progress"}:
+        raise ValueError("Reversed production cannot be edited")
+    steps = batch.details["steps"]
+    if not 1 <= position <= len(steps) or not step_matches(
+        steps[position - 1], data.expected_created_at
+    ):
+        raise ValueError("Production steps changed; reload the batch before editing")
+    step = steps[position - 1]
+    if Decimal(step["loss_gold_24k"]) > Decimal("0.001") and not (data.note or "").strip():
+        raise ValueError("Explain the step's gold loss in its notes")
+    revised = {**step, "name": data.name, "note": data.note}
+    batch.details = {
+        **batch.details,
+        "steps": [*steps[: position - 1], revised, *steps[position:]],
+    }
+    await db.commit()
+    return {"id": batch.id, "kind": "production_step", "message": "Production step updated"}
+
+
+async def reverse_step(db, batch_id, position, data, user_id):
+    batch = await locked_batch(db, batch_id)
+    steps = batch.details["steps"]
+    if batch.status != "in_progress" or not steps or position != len(steps):
+        raise ValueError("Only the latest step of an in-progress batch can be reversed")
+    step = steps[-1]
+    if not step_matches(step, data.expected_created_at):
+        raise ValueError("Production steps changed; reload the batch before reversing")
+    cost_operations = batch.details["cost_operations"]
+    cost = Decimal(step["direct_cost_usd"])
+    doc = await ops().document(
+        db,
+        unit="factory",
+        kind="production_reversal",
+        location_id=batch.location_id,
+        user_id=user_id,
+        note=data.note,
+        amount=cost,
+        details={"batch_id": batch.id, "step": position, "original_step": step},
+        reversal_of_id=cost_operations[-1],
+    )
+    ops().cash_entry(db, doc, "factory", batch.location_id, cost, "production_cost")
+    batch.output_gold_24k = Decimal(steps[-2]["output_gold_24k"]) if len(steps) > 1 else ZERO
+    batch.scrap_gold_24k -= Decimal(step["scrap_gold_24k"])
+    batch.loss_gold_24k -= Decimal(step["loss_gold_24k"])
+    batch.direct_cost_usd -= cost
+    batch.total_cost_usd -= cost
+    batch.details = {
+        **batch.details,
+        "steps": steps[:-1],
+        "cost_operations": cost_operations[:-1],
+    }
+    return {"id": doc.id, "kind": "production_reversal", "message": "Production step reversed"}
 
 
 async def reverse_production(db, batch_id, note, user_id):
@@ -517,7 +585,7 @@ async def trade_rows(db, rows, location_id, price, *, invoice_id=None, sale_id=N
 async def supplier_sale(db, data, user_id):
     await lock_locations(db, data.location_id)
     await require_active_supplier(db, data.supplier_id, exclusive=True)
-    quote = await get_quote()
+    quote = await effective_quote(db, get_quote)
     require_fresh_quote(quote)
     sale = Sale(
         unit="factory",
